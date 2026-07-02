@@ -8,7 +8,56 @@ Entries are ordered by date with the newest at the top of the file.
 - Active roadmap: `docs/development-plan.md`
 - Feature specs: `docs/superpowers/specs/`
 - Implementation plans: `docs/superpowers/plans/`
-- Feature comparison: `docs/review-2026-07-01.md`
+
+---
+
+## 2026-07-02 — Autocomplete Upgrades (9 New Backends)
+
+**Goal:** Raise orchard's completion quality from prefix-only to zsh/fish level by
+adding fuzzy matching, magic context completion, R argument descriptions, improved
+`[[` handling, R6 method completion, spellcheck suggestions, and schema-aware
+column/pipe completions.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/completion.rs` | Added 7 public functions: `fuzzy_match`, `schema_completions`, `pipe_completions`, `function_arg_completions`, `magic_completions`, `spellcheck_completions`, `levenshtein_distance`. Extended `extract_bracket_context` to handle quoted columns. Extended `resolve_schema` for R6/refClass. Updated all filters from `starts_with` to `fuzzy_match`. |
+| `src/prompt.rs` | Added 6 new completion checks in `OrchardCompleter::complete_with_intent`: schema (`$`/`@`/`[[`) → pipe (`%>%`) → magic args → function args → variable selector (Manual) → spellcheck → existing R/LaTeX/package |
+| `docs/development-plan.md` | Updated test counts, architecture diagram, schema-autocomplete section (all 8 features ✅), roadmap (v0.5 marked 🟡 Partial, 8 sub-items ✅), file descriptions |
+| `docs/superpowers/plans/2026-07-02-autocomplete-upgrades.md` | Created: 6-task implementation plan |
+
+**9 new completion backends:**
+
+| Backend | Activation | Source |
+|---------|-----------|--------|
+| `$`/`@` column completion | `identifier$` or `identifier@` at cursor | R `names()` / `slotNames()`, 5s cache |
+| `[[` column completion | `identifier[[` with optional quoted name | R `names()`, handles `[["col"` |
+| `%>%` pipe completion | Expression before last `%>%` | R `eval(parse(...))` + `names()` |
+| Fuzzy matching | All backends (except LaTeX/shell-paths) | Custom subsequence matcher, case-insensitive |
+| Magic arg completion | `%run`, `%cd`, `%rm` + 27 more magics | File/dir/variable dispatch per magic |
+| Function arg completion | Inside `fn_name(` | R `formals()` with default value display |
+| R6/refClass method completion | `obj$` on R6/refClass objects | `ls(envir=obj)` for R6, filters `.__*` |
+| Variable selector (Manual) | `Tab`/`Ctrl-Space` (Manual intent) | R `ls()` + `class()` + `object.size()` |
+| Spellcheck / "did you mean" | Empty completions + prefix ≥ 3 chars | Levenshtein distance vs ~2000 R names |
+
+**Test count:** 310 lib tests (up from 304), 7 magic_framework tests. Total: 317 tests.
+
+**Verification:**
+```
+cargo test --lib        # 310 passed, 0 failed
+cargo clippy            # 0 warnings
+cargo fmt               # clean
+```
+
+**Commits (6, on master):**
+```
+16d9488 feat: fuzzy/substring matching for all completions
+4ade790 feat: magic context argument completion for 30+ magics
+b01e983 feat: function argument completion with formals() display
+0d7b42f feat: improved [[ bracket completion handles quoted columns
+04e6eb4 feat: R6 and refClass method/field completion via $
+53c9286 feat: spellcheck / 'did you mean' suggestions via Levenshtein
 
 ---
 
@@ -1320,7 +1369,7 @@ These were all functional before the recovery incident and are now broken:
 | R7 | `src/magics/edit_magic.rs` | All 5 edit modes (N, $N, N-M, -N, filename) depend on stubbed `get_history_snapshot()` | **Blocking** |
 | R8 | `src/magics/history_magics.rs:44-55` | `export_history()` calls `recent_entries()` → `get_history_snapshot()` → empty | **Medium** |
 
-### SEGFAULT Risks (3 items — unfixed from DEVELOPMENT_PLAN.md)
+### SEGFAULT Risks (3 items — unfixed from `docs/development-plan.md`)
 
 | # | File | Issue | Severity |
 |---|------|-------|----------|
@@ -1334,8 +1383,8 @@ These were all functional before the recovery incident and are now broken:
 |---|------|-------|----------|
 | Q1 | `src/magics/debug.rs:4-19` | `eval_r_captured` and `eval_r_silent` spawn `R --vanilla -s -e` subprocess instead of using `r_runtime::eval_string_raw_global` | **Medium** |
 | Q2 | `src/magics/workspace.rs:4-11` | Same subprocess-spawning issue as Q1 | **Medium** |
-| Q3 | `src/env_setup.rs:76` | `r_version_at_least_42()` is dead code (flagged in DEVELOPMENT_PLAN.md for removal) | **Low** |
-| Q4 | `src/r_runtime.rs:273` | `ConsoleState::history_arc` field is unused (flagged in DEVELOPMENT_PLAN.md) | **Low** |
+| Q3 | `src/env_setup.rs:76` | `r_version_at_least_42()` is dead code (flagged in `docs/development-plan.md` for removal) | **Low** |
+| Q4 | `src/r_runtime.rs:273` | `ConsoleState::history_arc` field is unused (flagged in `docs/development-plan.md`) | **Low** |
 
 ### Missing Intended Features (not built yet)
 
@@ -1508,9 +1557,9 @@ dating back to pre-recovery (2026-06-30 through 2026-07-01).
 | File | Claims | Actual | Delta |
 |------|--------|--------|-------|
 | `README.md` | 72+ handlers, ~285 tests | 46 handlers, 164 tests | -26 handlers, -121 tests |
-| `DEVELOPMENT_PLAN.md` (root) | 72+ handlers, 165 tests | 46 handlers, 164 tests | -26 handlers, -1 test |
+| `DEVELOPMENT_PLAN.md` (root, since deleted — redirect to `docs/development-plan.md`) | 72+ handlers, 165 tests | 46 handlers, 164 tests | -26 handlers, -1 test |
 | `docs/development-plan.md` | 50-56 handlers, 249 tests | 46 handlers, 164 tests | -4/-10 handlers, -85 tests |
-| `docs/review-2026-07-01.md` | 55 handlers, 249/249 tests | 46 handlers, 164 tests | -9 handlers, -85 tests |
+| `docs/review-2026-07-01.md` (since consolidated into `docs/development-plan.md`) | 55 handlers, 249/249 tests | 46 handlers, 164 tests | -9 handlers, -85 tests |
 | `docs/design-history.md` | 50 handlers, 249 tests | 46 handlers, 164 tests | -4 handlers, -85 tests |
 
 ### Non-Existent Modules Referenced in `docs/design-history.md`
@@ -1522,7 +1571,7 @@ dating back to pre-recovery (2026-06-30 through 2026-07-01).
 | `doc.rs` | `src/magics/doc.rs` | File never existed in crate |
 | `HISTORY_SNAPSHOT` static | `src/history.rs` | Uses `history_entries_snapshot()` function instead |
 
-### Features Listed as ✅ in `docs/review-2026-07-01.md` That Are Not Registered
+### Features Listed as ✅ in `docs/review-2026-07-01.md` (since consolidated) That Are Not Registered
 
 These items appear under the "Shell Integration" (B2) and "Timing" (B3) tables
 with a ✅ status, but no corresponding handler is registered:
@@ -1685,12 +1734,12 @@ Additionally, the Rust side implements:
 
 **Context:** Comprehensive gap analysis comparing the current codebase (49
 registered handlers, 164 tests) against the aspirational 72+ handler target
-documented in `docs/review-2026-07-01.md` (IPython/radian/Julia/zsh comparisons)
+documented in `docs/review-2026-07-01.md` (since consolidated into `docs/development-plan.md` — IPython/radian/Julia/zsh comparisons)
 and `docs/development-plan.md` (phase-by-phase handler tables).
 
 Reference features that no longer apply (UI patterns unique to other shells
-that have no R equivalent) were excluded — see `docs/review-2026-07-01.md`
-§3.11 for the full exclusion list.
+that have no R equivalent) were excluded — see `docs/review-2026-07-01.md` (since consolidated)
+§3.11 for the full exclusion list, now in `docs/development-plan.md`.
 
 ---
 
@@ -2272,7 +2321,7 @@ documentation-only update to make the configuration discoverable.
 
 ## Appendix B: Recovery Incident (2026-07-02)
 
-*Merged from root `DEVELOPMENT_PLAN.md` during 2026-07-02 documentation consolidation.*
+*Originally in root `DEVELOPMENT_PLAN.md`, since consolidated into `docs/development-plan.md` (2026-07-02).*
 
 The project was accidentally deleted and recovered from OpenCode session database
 logs on 2026-07-02. All 76 source files were recovered, but some components were
@@ -2407,7 +2456,7 @@ executed:
 |------|-----------|
 | `README.md` | Test count 164 → 144 (two locations) |
 | `docs/development-plan.md` | Test count 158 lib → 132 lib; total 164 → 144; v0.3 gate ✅ PASS → 🔲 Planned |
-| `docs/review-2026-07-01.md` | Stale-warning correction 164 → 144 |
+| `docs/review-2026-07-01.md` (since consolidated into `docs/development-plan.md`) | Stale-warning correction 164 → 144 |
 
 ### Verification
 
@@ -2416,5 +2465,25 @@ cargo check    # 0 errors, 0 warnings
 cargo clippy   # 0 warnings
 cargo test     # 144 passed, 0 failed, 1 ignored
 ```
+
+### Correction (2026-07-02, verification audit)
+
+The handler count of 49 reported in this entry undercounted vs reality.
+A source audit of `src/magic.rs::register_all()` (2026-07-02, later) confirmed:
+
+- **Actual handlers registered: 47**, not 49
+- `%debug` and `%pdb` were listed as registered in prior plans but their structs
+  (`Debug`, `Pdb`) were never defined in `src/magics/debug.rs` and never registered
+  in `src/magic.rs::register_all()` — only `Traceback`, `Where`, and `Continue`
+  (3 handlers) exist in the debug module
+
+The test count of 144 reported in this entry reflected an intermediate state
+during codebase cleanup (dead tests removed). Current verified count (2026-07-02
+after test hardening) is 307 (300 lib + 7 magic_framework).
+
+This entry's "49" and "144" values are preserved as the state as of the time of
+writing. The development plan (`docs/development-plan.md`) was subsequently
+rewritten with verified counts on 2026-07-02 after removing redundant docs
+(`DEVELOPMENT_PLAN.md` root stub, `docs/review-2026-07-01.md`).
 
 ---
