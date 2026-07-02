@@ -70,7 +70,7 @@ pub fn package_completions(text: &str, cursor: usize, packages: &[String]) -> Ve
     let in_package_context = package_context(text, cursor) || cursor_in_string(text, cursor);
     packages
         .iter()
-        .filter(|p| p.starts_with(prefix))
+        .filter(|p| fuzzy_match(p, prefix))
         .map(|p| Completion {
             replacement: if in_package_context {
                 p.clone()
@@ -294,6 +294,29 @@ fn is_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '.' || c == '_'
 }
 
+/// Case-insensitive fuzzy subsequence match.
+///
+/// Returns `true` if all characters of `query` appear in `name` in order
+/// (not necessarily consecutively). An empty query always matches.
+pub fn fuzzy_match(name: &str, query: &str) -> bool {
+    let name = name.to_lowercase();
+    let query = query.to_lowercase();
+    if query.is_empty() {
+        return true;
+    }
+    let mut ni = name.chars().peekable();
+    for qc in query.chars() {
+        loop {
+            match ni.next() {
+                Some(nc) if nc == qc => break,
+                Some(_) => continue,
+                None => return false,
+            }
+        }
+    }
+    true
+}
+
 /// Detect a `$` or `@` accessor context before the cursor.
 ///
 /// Returns `(object_name, operator, span_start)` where `span_start` is the
@@ -449,7 +472,7 @@ pub fn schema_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>,
         let names = resolve_schema(&obj_name, op);
         let items: Vec<Completion> = names
             .iter()
-            .filter(|n| n.starts_with(prefix))
+            .filter(|n| fuzzy_match(n, prefix))
             .map(|n| Completion {
                 replacement: n.clone(),
                 display: n.clone(),
@@ -466,7 +489,7 @@ pub fn schema_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>,
         let names = resolve_schema(&obj_name, '$'); // $ → names() for [[ too
         let items: Vec<Completion> = names
             .iter()
-            .filter(|n| n.starts_with(prefix))
+            .filter(|n| fuzzy_match(n, prefix))
             .map(|n| Completion {
                 replacement: n.clone(),
                 display: n.clone(),
@@ -544,7 +567,7 @@ pub fn pipe_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, u
 
     let items: Vec<Completion> = names
         .iter()
-        .filter(|n| n.starts_with(prefix))
+        .filter(|n| fuzzy_match(n, prefix))
         .map(|n| Completion {
             replacement: n.clone(),
             display: n.clone(),
@@ -588,7 +611,7 @@ pub fn variable_selector_completions(prefix: &str) -> Vec<Completion> {
         .filter_map(|line| {
             let mut parts = line.splitn(3, '\t');
             let name = parts.next()?;
-            if !name.starts_with(prefix) {
+            if !fuzzy_match(name, prefix) {
                 return None;
             }
             let cls = parts.next().unwrap_or("");
@@ -790,5 +813,49 @@ mod tests {
     fn schema_completions_no_context() {
         assert!(schema_completions("mean(x)", 7).is_none());
         assert!(schema_completions("library(dplyr)", 15).is_none());
+    }
+
+    // ── Fuzzy matching tests ──────────────────────────────────────────────
+
+    #[test]
+    fn fuzzy_match_exact() {
+        assert!(fuzzy_match("select", "select"));
+    }
+
+    #[test]
+    fn fuzzy_match_case_insensitive() {
+        assert!(fuzzy_match("SELECT", "select"));
+        assert!(fuzzy_match("select", "SELECT"));
+    }
+
+    #[test]
+    fn fuzzy_match_substring() {
+        assert!(fuzzy_match("select", "sel"));
+        assert!(fuzzy_match("select", "ect"));
+    }
+
+    #[test]
+    fn fuzzy_match_skip_chars() {
+        // "sl" matches "select" — s...l
+        assert!(fuzzy_match("select", "sl"));
+        // "slt" matches "select" — s...l...ect
+        assert!(fuzzy_match("select", "slt"));
+    }
+
+    #[test]
+    fn fuzzy_match_no_match() {
+        assert!(!fuzzy_match("select", "xyz"));
+        assert!(!fuzzy_match("select", "sx"));
+    }
+
+    #[test]
+    fn fuzzy_match_empty_query() {
+        assert!(fuzzy_match("anything", ""));
+    }
+
+    #[test]
+    fn fuzzy_match_underscore_and_dots() {
+        assert!(fuzzy_match("my_column_name", "mcn"));
+        assert!(fuzzy_match("my.column.name", "mcn"));
     }
 }
