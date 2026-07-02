@@ -357,6 +357,14 @@ impl Completer for OrchardCompleter {
             context.settings.completion_adding_spaces_around_equals,
         );
         out.extend(package_matches);
+        // Spellcheck: if no completions found and prefix is substantial,
+        // suggest nearest-matching R function/variable names.
+        if out.is_empty() && prefix.len() >= 3 {
+            let corrections = completion::spellcheck_completions(prefix);
+            if !corrections.is_empty() {
+                return suggestions(corrections, span);
+            }
+        }
         suggestions(out, span)
     }
 }
