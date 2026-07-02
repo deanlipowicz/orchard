@@ -1,5 +1,6 @@
 pub mod config;
 pub mod debug;
+pub mod eda;
 pub mod edit_magic;
 pub mod file_magics;
 pub mod history_magics;

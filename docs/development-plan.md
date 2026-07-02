@@ -4,7 +4,7 @@
 commands, an intelligent in-terminal data inspector, and schema-aware autocomplete.
 Replaces upstream Python radian on Linux (macOS pending acceptance).
 
-**Current state:** 47 registered magic handlers | 363 tests (356 lib + 7 magic framework) | Linux only
+**Current state:** 55 registered magic handlers | 389 tests (382 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -99,7 +99,7 @@ Data Inspector (v0.3):
 | 10 | Lexer: string detection, highlighting |
 | 11 | Shell: `;` mode, `cd`, env expansion |
 
-### Magic Commands (47 Registered)
+### Magic Commands (55 Registered)
 
 All handlers registered in `src/magic.rs::register_all()`.
 
@@ -115,7 +115,8 @@ All handlers registered in `src/magic.rs::register_all()`.
 | Workspace | `%pinfo`, `%pinfo2` | 2 |
 | Edit | `%macro`, `%edit` | 2 |
 | File | `%run`, `%load` | 2 |
-| **Total** | | **47** |
+| EDA | `%summary`, `%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`, `%sessioninfo` | 8 |
+| **Total** | | **55** |
 
 **Dispatch order:** `;` → `!` → `?` → `%` → R
 
@@ -429,28 +430,28 @@ Automatically re-source modified R files detected by filesystem watcher
 
 ### v0.3 — EDA Core + Editor Loop
 
-**Target:** 56 handlers (47 current + 9 new)
+**Target:** 56 handlers (55 current + 1 new)
 **Focus:** Daily-use features for statistical computing and exploratory data analysis.
 Low effort, high benefit.
 
-| Handler/Feature | Description | Effort |
-|-----------------|-------------|--------|
-| `%summary` | Statistical summary via `summary()` | 0.5h |
-| `%glimpse` | Data glimpse via `dplyr::glimpse()` | 0.5h |
-| `%describe` | Skim-style summary via `skimr::skim()` | 0.5h |
-| `%missing` | Missingness patterns via `naniar::miss_summary()` | 0.5h |
-| `%corr` | Correlation matrix via `cor()` + `corrplot` | 0.5h |
-| `%freq` | Frequency tables via `janitor::tabyl()` | 0.5h |
-| `%compare` | Diff two objects via `waldo::compare()` | 0.5h |
-| `%sessioninfo` | Reproducibility metadata via `sessioninfo::session_info()` | 0.5h |
-| `%xmode` | Traceback verbosity control | 0.5h |
-| `%save` | Save history to file | 1h |
-| `%automagic` | Toggle `%` prefix on magic commands | 1h |
-| `$` / `@` column completion | R `names(obj)` after `obj$` prefix | 2h |
-| `%inspect` text table | comfy-table renderer for any R object (Phase 1) | 6h |
-| CI pipeline (Linux) | GitHub Actions | 1h |
+| Handler/Feature | Description | Effort | Status |
+|-----------------|-------------|--------|--------|
+| `%summary` | Statistical summary via `summary()` | 0.5h | ✅ Done |
+| `%glimpse` | Data glimpse via `dplyr::glimpse()` | 0.5h | ✅ Done |
+| `%describe` | Skim-style summary via `skimr::skim()` | 0.5h | ✅ Done |
+| `%missing` | Missingness patterns via `naniar::miss_summary()` | 0.5h | ✅ Done |
+| `%corr` | Correlation matrix via `cor()` + `corrplot` | 0.5h | ✅ Done |
+| `%freq` | Frequency tables via `janitor::tabyl()` | 0.5h | ✅ Done |
+| `%compare` | Diff two objects via `waldo::compare()` | 0.5h | ✅ Done |
+| `%sessioninfo` | Reproducibility metadata via `sessioninfo::session_info()` | 0.5h | ✅ Done |
+| `%xmode` | Traceback verbosity control | 0.5h | 🔲 Planned |
+| `%save` | Save history to file | 1h | 🔲 Planned |
+| `%automagic` | Toggle `%` prefix on magic commands | 1h | 🔲 Planned |
+| `$` / `@` column + pipe completion | R `names(obj)` after `obj$`, `[[`, `%>%` | 2h | ✅ Done |
+| `%inspect` text table | comfy-table renderer for any R object (Phase 1) | 6h | 🔲 Planned |
+| CI pipeline (Linux) | GitHub Actions | 1h | ✅ Done |
 
-**Subtotal:** ~15.5h
+**Subtotal:** ~8.5h remaining (of 15.5h)
 
 **Architecture changes:**
 - Schema-aware completion backend in `src/completion.rs` calling R to resolve object schema
@@ -621,9 +622,10 @@ Low effort, high benefit.
 ## Feature Count Trajectory
 
 ```
-v0.2: 47 handlers (current — verified from register_all())
-v0.3: 56 handlers (+9: summary, glimpse, describe, missing, corr, freq, compare, sessioninfo, xmode,
-       save, automagic — plus $/@ completion and %inspect)
+v0.2: 47 handlers (baseline)
+v0.3: 56 handlers (+8 EDA: summary, glimpse, describe, missing, corr, freq, compare, sessioninfo;
+       +1: xmode — plus $/@/pipe completion, CI pipeline, %inspect)
+       ➜ 55 done, 1 remaining
 v0.4: 62 handlers (+6: rerun, recall, store, logstart, logstop, logstate,
                reset, reset_selective, xdel)
 v0.5: 72 handlers (+10: debug, pdb, debugonce, undebug, browser, n, finish, Q,

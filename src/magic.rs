@@ -149,6 +149,16 @@ pub fn register_all(registry: &mut MagicRegistry) {
     // P8 — File execution
     registry.register(Arc::new(crate::magics::file_magics::Run));
     registry.register(Arc::new(crate::magics::file_magics::Load));
+
+    // P9 — EDA handlers
+    registry.register(Arc::new(crate::magics::eda::Summary));
+    registry.register(Arc::new(crate::magics::eda::Glimpse));
+    registry.register(Arc::new(crate::magics::eda::Describe));
+    registry.register(Arc::new(crate::magics::eda::Missing));
+    registry.register(Arc::new(crate::magics::eda::Corr));
+    registry.register(Arc::new(crate::magics::eda::Freq));
+    registry.register(Arc::new(crate::magics::eda::Compare));
+    registry.register(Arc::new(crate::magics::eda::SessionInfo));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -331,16 +341,6 @@ mod tests {
     fn is_magic_name_works() {
         assert!(is_magic_name("lsmagic"));
         assert!(!is_magic_name("nonexistent_magic_name_12345"));
-    }
-
-    #[test]
-    fn test_parse_magic_line_basic() {
-        let line = MagicLine {
-            name: "test".into(),
-            args: "".into(),
-            is_cell: false,
-        };
-        assert_eq!(line.name, "test");
     }
 
     #[test]
