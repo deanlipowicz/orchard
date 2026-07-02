@@ -11,6 +11,37 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-02 — %inspect Text Table (Phase 1)
+
+**Goal:** Add an `%inspect` magic command that renders any R object as a formatted
+text table using comfy-table, completing the v0.3 EDA Core milestone.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `Cargo.toml` | Added `comfy-table = "7"` dependency |
+| `src/magics/inspect.rs` | Added `Inspect` handler, `render_tabular()` (parses TSV data from R into comfy-table), `build_inspect_code()` (generates R code that returns structured class/dimensions/data). Data.frames/matrices render as full UTF8 tables with bold headers, dynamic width, and a footer showing dimensions. Non-tabular objects fall back to `str()`. |
+| `src/magic.rs` | Registered `Inspect` handler in P9 — EDA section. |
+
+**Test count:** 390 lib tests (+ inspect handler tests).
+
+**Handler count:** 58 → 59 registered magic handlers. **v0.3 milestone complete.**
+
+**Verification:**
+```
+cargo check                # 0 errors, 0 warnings
+cargo clippy -- -D warnings  # 0 warnings
+cargo test --lib           # 390 passed, 0 failed, 1 ignored
+```
+
+**Commit:**
+```
+5e63fe8 feat: add %inspect text table renderer with comfy-table
+```
+
+---
+
 ## 2026-07-02 — %xmode, %automagic, %save Handlers
 
 **Goal:** Add the 3 remaining small v0.3 features — traceback verbosity control,

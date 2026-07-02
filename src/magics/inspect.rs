@@ -578,3 +578,81 @@ impl MagicHandler for Inspect {
         Ok(Output::Text(rendered))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_tsv() -> &'static str {
+        "data.frame\t32\t11\nmpg\tcyl\tdisp\t hp\n21.0\t6\t160\t110\n21.0\t6\t160\t110\n22.8\t4\t108\t93"
+    }
+
+    #[test]
+    fn render_tabular_includes_column_names() {
+        let output = render_tabular(sample_tsv(), "mtcars");
+        assert!(output.contains("mpg"), "should contain column name 'mpg'");
+        assert!(output.contains("cyl"), "should contain column name 'cyl'");
+        assert!(output.contains("disp"), "should contain column name 'disp'");
+    }
+
+    #[test]
+    fn render_tabular_includes_data_values() {
+        let output = render_tabular(sample_tsv(), "mtcars");
+        assert!(output.contains("21.0"), "should contain data value '21.0'");
+        assert!(output.contains("22.8"), "should contain data value '22.8'");
+    }
+
+    #[test]
+    fn render_tabular_includes_footer() {
+        let output = render_tabular(sample_tsv(), "mtcars");
+        assert!(output.contains("32"), "footer should show 32 rows");
+        assert!(output.contains("11"), "footer should show 11 columns");
+        assert!(output.contains("data.frame"), "footer should show class");
+    }
+
+    #[test]
+    fn render_tabular_handles_single_row() {
+        let data = "data.frame\t1\t2\ncol1\tcol2\nval1\tval2";
+        let output = render_tabular(data, "x");
+        assert!(output.contains("col1"));
+        assert!(output.contains("val1"));
+    }
+
+    #[test]
+    fn render_tabular_handles_fewer_columns_in_data() {
+        let data = "data.frame\t3\t2\nA\tB\n1\t2\n3";
+        // This shouldn't panic, just render what we have
+        let output = render_tabular(data, "x");
+        assert!(output.contains("A"));
+    }
+
+    #[test]
+    fn render_tabular_empty_data_returns_fallback() {
+        let output = render_tabular("", "x");
+        assert!(output.contains("empty result"));
+    }
+
+    #[test]
+    fn render_tabular_malformed_header_does_not_panic() {
+        let output = render_tabular("just one line", "x");
+        assert!(!output.is_empty());
+    }
+
+    #[test]
+    fn build_inspect_code_contains_expression() {
+        let code = build_inspect_code("mtcars");
+        assert!(code.contains("mtcars"));
+    }
+
+    #[test]
+    fn build_inspect_code_contains_is_data_dot_frame() {
+        let code = build_inspect_code("x");
+        assert!(code.contains("is.data.frame"));
+    }
+
+    #[test]
+    fn build_inspect_code_contains_no_table_fallback() {
+        let code = build_inspect_code("x");
+        assert!(code.contains("no-table"));
+    }
+}

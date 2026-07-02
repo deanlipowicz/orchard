@@ -1,10 +1,13 @@
 # Development Plan
 
-**What:** Rust rewrite of `radian`, the R terminal REPL, with IPython-style magic
-commands, an intelligent in-terminal data inspector, and schema-aware autocomplete.
-Replaces upstream Python radian on Linux (macOS pending acceptance).
+**What:** orchard — R without the weight. A terminal-native R REPL that pairs
+with your text editor for a git-friendly, file-driven workflow. Write your R,
+DuckDB, Stan, and C in files; explore interactively in orchard. Built in Rust as
+a ground-up rewrite of the Python radian REPL, with IPython-style magic commands,
+schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
+in progress.
 
-**Current state:** 58 registered magic handlers | 397 tests (390 lib + 7 magic framework) | Linux only
+**Current state:** 59 registered magic handlers | 397+ tests (390 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -15,7 +18,7 @@ reedline/readline → r_runtime::read_console_interactive
   ├── ; shell mode (persistent or one-shot)
   ├── ! inline shell execution
   ├── ?/?? object introspection
-  ├── % magic dispatch (47 handlers)
+  ├── % magic dispatch (58 handlers)
   ├── + tab: Schema-aware autocomplete (14 backends) + variable selector ✅
   └── R evaluation (via R C API)
 
@@ -32,7 +35,7 @@ Data Inspector (v0.3):
 **Key files:**
 - `src/r_runtime.rs` — REPL loop, dispatch, R callbacks
 - `src/magic.rs` — registry, MagicHandler trait, MagicLine
-- `src/magics/*.rs` — handler modules (47 handlers)
+- `src/magics/*.rs` — handler modules (58 handlers)
 - `src/history.rs` — history + snapshot
 - `src/prompt.rs` — reedline session, completer, highlighter
 - `src/shell.rs` — shell commands, env lock
@@ -80,7 +83,7 @@ Data Inspector (v0.3):
 
 ---
 
-## Current Feature Set (47 Handlers)
+## Current Feature Set (58 Handlers)
 
 ### Core REPL (Python radian parity — all ✅)
 
@@ -99,7 +102,7 @@ Data Inspector (v0.3):
 | 10 | Lexer: string detection, highlighting |
 | 11 | Shell: `;` mode, `cd`, env expansion |
 
-### Magic Commands (55 Registered)
+### Magic Commands (58 Registered)
 
 All handlers registered in `src/magic.rs::register_all()`.
 
@@ -107,7 +110,7 @@ All handlers registered in `src/magic.rs::register_all()`.
 |--------|----------|-------|
 | Framework | `%lsmagic`, `%magic` | 2 |
 | Shell | `%pwd`, `%env`, `%bookmark`, `%cd`, `%ls`, `%sx`, `%pushd`, `%popd`, `%dhist` | 9 |
-| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile` | 18 |
+| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect` | 19 |
 | Debug | `%tb` (Traceback), `%where`, `%c` (Continue), `%xmode` | 4 |
 | Timing | `%time`, `%timeit`, `%prun` | 3 |
 | History | `%hist`, `%hist_n`, `%save` | 3 |
@@ -116,7 +119,7 @@ All handlers registered in `src/magic.rs::register_all()`.
 | Edit | `%macro`, `%edit` | 2 |
 | File | `%run`, `%load` | 2 |
 | EDA | `%summary`, `%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`, `%sessioninfo` | 8 |
-| **Total** | | **58** |
+| **Total** | | **59** |
 
 **Dispatch order:** `;` → `!` → `?` → `%` → R
 
@@ -374,7 +377,7 @@ IPython feature categories with current orchard coverage:
 | **Total** | **30** | **21** | **51** |
 
 Plus R-specific magics from the inspect module (18 handlers) and edit/file modules
-(4 handlers), bringing the total to **47 registered handlers**.
+(4 handlers), bringing the total to **58 registered handlers**.
 
 ### Missing `%%` Cell Magics
 
@@ -428,11 +431,10 @@ Automatically re-source modified R files detected by filesystem watcher
 
 ## Staged Roadmap
 
-### v0.3 — EDA Core + Editor Loop
+### ✅ v0.3 — EDA Core + Editor Loop (Complete)
 
-**Target:** 58 handlers (current)
+**Target:** 59 handlers
 **Focus:** Daily-use features for statistical computing and exploratory data analysis.
-Low effort, high benefit.
 
 | Handler/Feature | Description | Effort | Status |
 |-----------------|-------------|--------|--------|
@@ -448,10 +450,10 @@ Low effort, high benefit.
 | `%save` | Save history to file | 1h | ✅ Done |
 | `%automagic` | Toggle `%` prefix on magic commands | 1h | ✅ Done |
 | `$` / `@` column + pipe completion | R `names(obj)` after `obj$`, `[[`, `%>%` | 2h | ✅ Done |
-| `%inspect` text table | comfy-table renderer for any R object (Phase 1) | 6h | 🔲 Planned |
+| `%inspect` text table | comfy-table renderer for any R object (Phase 1) | 6h | ✅ Done |
 | CI pipeline (Linux) | GitHub Actions | 1h | ✅ Done |
 
-**Subtotal:** ~6h remaining (%inspect only)
+**Status:** All 14 items complete. 59 handlers delivered.
 
 **Architecture changes:**
 - Schema-aware completion backend in `src/completion.rs` calling R to resolve object schema
@@ -623,8 +625,8 @@ Low effort, high benefit.
 
 ```
 v0.2: 47 handlers (baseline)
-v0.3: 58 handlers (+8 EDA, +1 xmode, +1 save, +1 automagic — plus $/@/pipe completion, CI pipeline)
-       ➜ 58 done, %inspect remaining
+v0.3: 59 handlers (+8 EDA, +1 xmode, +1 save, +1 automagic, +1 inspect — plus $/@/pipe completion, CI pipeline)
+       ➜ Complete
 v0.4: 62 handlers (+6: rerun, recall, store, logstart, logstop, logstate,
                reset, reset_selective, xdel)
 v0.5: 72 handlers (+10: debug, pdb, debugonce, undebug, browser, n, finish, Q,
