@@ -7,4 +7,5 @@ pub mod lsmagic;
 pub mod magic_help;
 pub mod file_magics;
 pub mod shell;
+pub mod timing;
 pub mod workspace;

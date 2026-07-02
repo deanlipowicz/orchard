@@ -120,12 +120,15 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::inspect::Psource));
     registry.register(Arc::new(crate::magics::inspect::Pfile));
 
-    // P3 — Debugging
+    // P3 — Debugging and timing
     registry.register(Arc::new(crate::magics::debug::Debug));
     registry.register(Arc::new(crate::magics::debug::Pdb));
     registry.register(Arc::new(crate::magics::debug::Traceback));
     registry.register(Arc::new(crate::magics::debug::Where));
     registry.register(Arc::new(crate::magics::debug::Continue));
+    registry.register(Arc::new(crate::magics::timing::Time));
+    registry.register(Arc::new(crate::magics::timing::TimeIt));
+    registry.register(Arc::new(crate::magics::timing::Prun));
 
     // P4 — History magics
     registry.register(Arc::new(crate::magics::history_magics::Hist));
