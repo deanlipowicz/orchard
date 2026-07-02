@@ -4,7 +4,7 @@
 commands, an intelligent in-terminal data inspector, and schema-aware autocomplete.
 Replaces upstream Python radian on Linux (macOS pending acceptance).
 
-**Current state:** 47 registered magic handlers | 317 tests (310 lib + 7 magic framework) | Linux only
+**Current state:** 47 registered magic handlers | 319 tests (312 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -36,7 +36,10 @@ Data Inspector (v0.3):
 - `src/history.rs` — history + snapshot
 - `src/prompt.rs` — reedline session, completer, highlighter
 - `src/shell.rs` — shell commands, env lock
-- `src/completion.rs` — R/package/LaTeX/shell completion, schema-aware ($/@/[[/%>%), magic arg, function arg, fuzzy, spellcheck
+- `src/completion.rs` — R/package/LaTeX/shell completion, schema-aware ($/@/[[/%>%), magic arg, function arg, fuzzy (SkimMatcherV2), frequency boost, spellcheck, static TSV lookup (datasets + packages)
+- `src/frequency.rs` — completion frequency tracker with JSON persistence
+- `src/data/dataset_schemas.tsv` — 36 common dataset schemas for zero-FFI column completion
+- `src/data/package_symbols.tsv` — 10 packages with function names + argument signatures
 
 **Key decisions:**
 - Magic dispatch runs in `read_console_interactive` (Rust side, before returning to R)
@@ -266,6 +269,9 @@ Reserved keys (cannot be remapped): Ctrl-M, Ctrl-I, Ctrl-H, Ctrl-D, Ctrl-C.
 | Function args | Inside `fn_name(` context | R `formals()` with defaults display | Medium | ✅ Done |
 | R6 / refClass | `obj$` with R6/refClass objects | `ls(envir=obj)` for R6, filters internal names | Low | ✅ Done |
 | Spellcheck | Empty completion, prefix ≥3 chars | Levenshtein distance vs ~2000 R names | Low | ✅ Done |
+| Dataset TSV fast path | `obj$` on 36 known datasets | Static column names from TSV (no R call) | High | ✅ Done |
+| Package symbol TSV | `pkg::fun` context | Static function names + arg signatures from TSV | High | ✅ Done |
+| Frequency ranking | All completion backends | Learned from usage history, persisted to JSON | Medium | ✅ Done |
 | `data.table` | Regex: `\w+\[,` | R `names(data.table)` | Low | Future |
 | Formula `~` | Within `lm(`, `aov(`, etc. | R `names(data)` from formula | Medium | Future |
 | `DBI::dbGetQuery()` | SQL context detection | DBI connection schema | Future | Future |
@@ -281,11 +287,19 @@ mtcars  (data.frame, 7.2 Kb)
 lm_model  (lm, 4.5 Kb)
 ```
 
-### Fuzzy Matching Strategy (Implemented)
+### Scored Fuzzy Matching + Frequency Ranking (Implemented)
 
-All completion backends use case-insensitive subsequence-based fuzzy matching
-instead of exact-prefix matching. Typing `sl` matches `select`, `mcn` matches
-`my_column_name`. Implemented as a pure Rust function — no external crate needed.
+All completion backends use **scored** fuzzy matching via the `fuzzy-matcher` crate
+(SkimMatcherV2 — same engine as fzf). Candidates are scored by substring position,
+consecutive character runs, and camelCase boundaries, then ranked by:
+
+```
+final_score = skim_matcher_score + frequency_boost
+  where frequency_boost = min(count * 50, 500)
+```
+
+Frequency data is tracked per-session and persisted to
+`~/.local/share/orchard/completion_freq.json` via `src/frequency.rs`.
 LaTeX and shell path completions remain prefix-only (intentional).
 
 ---
@@ -714,14 +728,15 @@ These upstream Python radian features are intentionally deferred or excluded:
 
 ```bash
 cargo check                             # 0 errors, 0 warnings
-cargo test --lib --no-fail-fast         # 300 passed
+cargo test --lib --no-fail-fast         # 312 passed
 cargo test --test magic_framework       # 7 passed
 cargo clippy                            # 0 warnings
 ```
 
-For schema autocomplete unit tests:
+For completion tests:
 ```bash
-cargo test --lib completion
+cargo test --lib completion             # 50+ tests (schema, fuzzy, magic arg, function arg, spellcheck)
+cargo test --lib levenshtein            # Levenshtein distance tests
 cargo test --lib test_shell_sx_echo -- --ignored  # R-dependent test
 ```
 

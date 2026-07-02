@@ -11,6 +11,44 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-02 — Frequency-Aware Scored Completion + Static TSV Fast Paths
+
+**Goal:** Replace the naive boolean `fuzzy_match` filter with a proper scored ranking
+system using `fuzzy-matcher` (SkimMatcherV2), add cross-session frequency learning,
+and pre-compute dataset/package schemas as static TSV files to eliminate R FFI calls
+for common completion contexts.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `Cargo.toml` | Added `fuzzy-matcher = "0.3"`, `serde` (with `derive`), `serde_json = "1"` |
+| `src/frequency.rs` | **New module:** `FrequencyData` struct with `HashMap<String, usize>`, JSON persistence at `~/.local/share/orchard/completion_freq.json`, `record_completion()` increments + persists, `frequency_boost()` returns score bonus (50pts per use, capped at 500) |
+| `src/completion.rs` | Replaced all 7 `filter(\|n\| fuzzy_match(n, prefix))` chains with `rank_completions(names, prefix)` using SkimMatcherV2 + frequency boost. Added `static_dataset_columns()` (parses TSV into OnceLock HashMap), `static_package_fn_map()` and `namespace_context()` + `namespace_completions()` for `pkg::fun` with argument signatures in display. Fast path in `resolve_schema()` checks static dataset TSV before R FFI. |
+| `src/prompt.rs` | Wired `suggestions()` to call `frequency::record_completion()` for all returned completions. Added `namespace_completions` check. |
+| `src/data/dataset_schemas.tsv` | **New:** 225 lines, 36 datasets (iris, mtcars, diamonds, starwars, economics, etc.) with column names and types |
+| `src/data/package_symbols.tsv` | **New:** 480 lines, 10 packages (dplyr, tidyr, ggplot2, purrr, stringr, lubridate, data.table, forcats, readr, base) with function names and argument signatures |
+
+**Scoring model (implemented in `rank_completions`):**
+```
+final_score = skim_matcher_score + min(prior_count * 50, 500)
+```
+
+**Test count:** 312 lib tests (up from 310), 7 magic_framework tests. Total: 319 tests.
+
+**Verification:**
+```
+cargo test --lib        # 312 passed, 0 failed
+cargo clippy            # 0 warnings
+```
+
+**Commits (2, on master):**
+```
+4ebf549 feat: frequency-aware scored completion with fuzzy-matcher
+61f8da8 feat: static TSV fast path for dataset columns and package symbols
+
+---
+
 ## 2026-07-02 — Autocomplete Upgrades (9 New Backends)
 
 **Goal:** Raise orchard's completion quality from prefix-only to zsh/fish level by
