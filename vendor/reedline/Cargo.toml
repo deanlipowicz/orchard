@@ -1,0 +1,40 @@
+[package]
+edition = "2021"
+name = "reedline"
+version = "0.48.0"
+description = "A readline-like crate for CLI text input (vendored for radian-rs)"
+license = "MIT"
+repository = "https://github.com/nushell/reedline"
+
+[lib]
+name = "reedline"
+path = "src/lib.rs"
+
+[features]
+bashisms = []
+external_printer = ["crossbeam"]
+helix = ["keybindings"]
+idle_callback = []
+libc = ["crossterm/libc"]
+sqlite = ["rusqlite/bundled", "serde_json"]
+sqlite-dynlib = ["rusqlite", "serde_json"]
+system_clipboard = ["arboard"]
+
+[dependencies]
+arboard = { version = "3.3.0", features = ["wayland-data-control"], optional = true, default-features = false }
+chrono = { version = "0.4.19", features = ["clock", "serde"], default-features = false }
+crossbeam = { version = "0.8.2", optional = true }
+crossterm = { version = "0.29.0", features = ["serde"] }
+fd-lock = "4.0.2"
+itertools = "0.13.0"
+keybindings = { version = "0.0.2", optional = true }
+nu-ansi-term = "0.50.0"
+rusqlite = { version = "0.37.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0.79", optional = true }
+strip-ansi-escapes = "0.2.0"
+strum = { version = "0.27", features = ["derive"] }
+thiserror = "2.0.12"
+unicase = "2.8.0"
+unicode-segmentation = "1.9.0"
+unicode-width = "0.2"
