@@ -20,7 +20,7 @@ impl MagicHandler for Run {
             });
         }
         let resolved = if path.starts_with('~') {
-            crate::magics::shell::expand_tilde(path)
+            crate::util::expand_tilde(path)
         } else {
             path.to_string()
         };
@@ -29,10 +29,11 @@ impl MagicHandler for Run {
                 message: format!("File not found: {path}"),
             });
         }
-        crate::r_runtime::eval_string_raw_global(&format!("source({:?})", resolved))
-            .map_err(|e| magic::MagicError {
+        crate::r_runtime::eval_string_raw_global(&format!("source({:?})", resolved)).map_err(
+            |e| magic::MagicError {
                 message: e.to_string(),
-            })?;
+            },
+        )?;
         Ok(Output::Text(format!("Sourced {path}\n")))
     }
 }
@@ -56,7 +57,7 @@ impl MagicHandler for Load {
             });
         }
         let resolved = if path.starts_with('~') {
-            crate::magics::shell::expand_tilde(path)
+            crate::util::expand_tilde(path)
         } else {
             path.to_string()
         };
@@ -78,6 +79,18 @@ impl MagicHandler for Load {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_file_run_nonexistent() {
+        let handler = super::Run;
+        let line = MagicLine {
+            name: "run".into(),
+            args: "/tmp/orchard-nonexistent-run-file-××××.R".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_err(), "expected error for nonexistent file");
+    }
 
     #[test]
     fn test_file_load_nonexistent() {
