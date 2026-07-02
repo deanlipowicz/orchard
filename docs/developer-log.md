@@ -42,6 +42,8 @@ cargo clippy            # 0 warnings
 ```
 ccab47a feat: formula ~ completion for modeling functions (lm, glm, aov, etc.)
 
+**Plan complete** — `docs/superpowers/plans/2026-07-02-formula-completion.md` archived (all 4 tasks delivered).
+
 ---
 
 ## 2026-07-02 — Frequency-Aware Scored Completion + Static TSV Fast Paths
