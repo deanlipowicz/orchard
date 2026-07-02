@@ -11,6 +11,40 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-02 — %xmode, %automagic, %save Handlers
+
+**Goal:** Add the 3 remaining small v0.3 features — traceback verbosity control,
+automatic magic prefix toggling, and history save-to-file.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/magics/debug.rs` | Added `XMODE` state static with `set_xmode()`/`get_xmode()`. `%xmode` handler accepts `plain`, `context`, or `verbose` (or no args to show current). Modified `%tb` to call `traceback_code()` which adjusts `traceback(max.lines = ...)` based on xmode. 7 new tests. |
+| `src/magics/config.rs` | Added `Automagic` handler — toggles `automagic` setting in CONSOLE state on/off. Accepts `on`, `off`, or no arg to toggle. |
+| `src/magics/history_magics.rs` | Added `Save` handler — saves all history entries to a file path via existing `export_history()` function. |
+| `src/r_runtime.rs` | Added `set_automagic(enabled)` and `get_automagic()` pub functions for runtime setting access. |
+| `src/magic.rs` | Registered all 3 handlers as P10 — Debug/Config utilities. |
+
+**Test count:** 390 lib tests (up from 382), 7 magic framework. Total: 397 tests.
+
+**Handler count:** 55 → 58 registered magic handlers.
+
+**Verification:**
+```
+cargo check                # 0 errors, 0 warnings
+cargo clippy -- -D warnings  # 0 warnings
+cargo test --lib           # 390 passed, 0 failed, 1 ignored
+```
+
+**Commits:**
+```
+1527e74 feat: add %xmode, %automagic, %save handlers
+f273436 docs: update handler count to 58, mark v0.3 progress
+```
+
+---
+
 ## 2026-07-02 — EDA Magic Handlers (8 New: %summary, %glimpse, %describe, %missing, %corr, %freq, %compare, %sessioninfo)
 
 **Goal:** Add 8 exploratory data analysis magic commands for v0.3 EDA Core milestone.
