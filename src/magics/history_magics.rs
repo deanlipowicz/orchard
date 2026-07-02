@@ -66,22 +66,22 @@ pub struct SnapshotFilter {
 }
 
 /// Return up to `n` most recent entries matching the given filter.
-pub fn recent_entries(
-    filter: &SnapshotFilter,
-    n: usize,
-) -> Vec<Entry> {
+pub fn recent_entries(filter: &SnapshotFilter, n: usize) -> Vec<Entry> {
     let entries = get_history_snapshot();
     let limit = if n > 0 { n } else { 20 };
-    entries.into_iter()
+    entries
+        .into_iter()
         .filter(|e| {
             if let Some(ref m) = filter.mode_filter
-                && !e.mode.eq_ignore_ascii_case(m) {
-                    return false;
-                }
+                && !e.mode.eq_ignore_ascii_case(m)
+            {
+                return false;
+            }
             if let Some(ref p) = filter.pattern
-                && !e.text.contains(p.as_str()) {
-                    return false;
-                }
+                && !e.text.contains(p.as_str())
+            {
+                return false;
+            }
             true
         })
         .rev()
@@ -89,16 +89,17 @@ pub fn recent_entries(
         .collect()
 }
 
-pub fn export_history(
-    file_path: &str,
-    filter: &SnapshotFilter,
-) -> Result<(), magic::MagicError> {
+pub fn export_history(file_path: &str, filter: &SnapshotFilter) -> Result<(), magic::MagicError> {
     let entries = recent_entries(filter, 0);
-    let mut file = std::fs::File::create(file_path)
-        .map_err(|e| magic::MagicError { message: e.to_string() })?;
+    let mut file = std::fs::File::create(file_path).map_err(|e| magic::MagicError {
+        message: e.to_string(),
+    })?;
     for entry in &entries {
-        writeln!(file, "|{}| {}", entry.mode.replace('|', "_"), entry.text)
-            .map_err(|e| magic::MagicError { message: e.to_string() })?;
+        writeln!(file, "|{}| {}", entry.mode.replace('|', "_"), entry.text).map_err(|e| {
+            magic::MagicError {
+                message: e.to_string(),
+            }
+        })?;
     }
     Ok(())
 }
@@ -201,7 +202,12 @@ impl magic::MagicHandler for HistN {
             let mut output = String::new();
             for &idx in &matched {
                 let entry = &entries[idx];
-                output.push_str(&format!("{:>4}: [{}] {}\n", idx + 1, entry.mode, entry.text));
+                output.push_str(&format!(
+                    "{:>4}: [{}] {}\n",
+                    idx + 1,
+                    entry.mode,
+                    entry.text
+                ));
             }
             return Ok(magic::Output::Text(output));
         };

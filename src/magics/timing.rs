@@ -29,8 +29,8 @@ impl MagicHandler for Time {
             expr
         );
 
-        let result = crate::r_runtime::eval_string_raw_global(&code)
-            .map_err(|e| magic::MagicError {
+        let result =
+            crate::r_runtime::eval_string_raw_global(&code).map_err(|e| magic::MagicError {
                 message: format!("R evaluation failed: {e}"),
             })?;
 
@@ -83,8 +83,8 @@ impl MagicHandler for TimeIt {
                 "cat({{ t <- system.time({{ {} }}); sprintf('%.6f', t[3]) }})",
                 expr
             );
-            let result = crate::r_runtime::eval_string_raw_global(&code)
-                .map_err(|e| magic::MagicError {
+            let result =
+                crate::r_runtime::eval_string_raw_global(&code).map_err(|e| magic::MagicError {
                     message: format!("R evaluation failed (iteration {i}): {e}"),
                 })?;
             if let Ok(t) = result.trim().parse::<f64>() {
@@ -134,10 +134,9 @@ impl MagicHandler for Prun {
 
         // Start profiler
         let start_code = r#"Rprof(tmp <- tempfile(fileext = ".Rprof"))"#;
-        crate::r_runtime::eval_string_raw_global(start_code)
-            .map_err(|e| magic::MagicError {
-                message: format!("Failed to start profiler: {e}"),
-            })?;
+        crate::r_runtime::eval_string_raw_global(start_code).map_err(|e| magic::MagicError {
+            message: format!("Failed to start profiler: {e}"),
+        })?;
 
         // Run the expression
         let eval_code = format!("{{ {} }}", expr);
@@ -159,10 +158,11 @@ impl MagicHandler for Prun {
             cat(paste0(capture.output(summaryRprof(tmp)), collapse = "\n"))
             unlink(tmp)
         "#;
-        let summary = crate::r_runtime::eval_string_raw_global(summary_code)
-            .map_err(|e| magic::MagicError {
+        let summary = crate::r_runtime::eval_string_raw_global(summary_code).map_err(|e| {
+            magic::MagicError {
                 message: format!("Failed to get profiling summary: {e}"),
-            })?;
+            }
+        })?;
 
         Ok(Output::Text(summary))
     }

@@ -3,7 +3,6 @@
 pub mod cli;
 pub mod completion;
 pub mod dyld;
-pub mod editing;
 pub mod editing_hook;
 pub mod env_setup;
 pub mod history;
@@ -16,3 +15,4 @@ pub mod r_discovery;
 pub mod r_runtime;
 pub mod settings;
 pub mod shell;
+pub mod util;

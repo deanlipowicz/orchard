@@ -1,6 +1,6 @@
-use crate::{lexer::cursor_in_string, r_runtime::RRuntime};
+use crate::lexer::cursor_in_string;
 use std::{
-    env, fs,
+    fs,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -83,7 +83,7 @@ pub fn package_completions(text: &str, cursor: usize, packages: &[String]) -> Ve
 pub fn shell_path_completions(command: &str) -> Vec<Completion> {
     let dirs_only = command.trim_start().starts_with("cd ");
     let (dir, prefix, quoted) = split_path_word(command);
-    let expanded = expand_path(&dir);
+    let expanded = PathBuf::from(crate::util::expand_vars(&crate::util::expand_tilde(&dir)));
     let read_dir = if expanded.as_os_str().is_empty() {
         PathBuf::from(".")
     } else {
@@ -117,12 +117,6 @@ pub fn shell_path_completions(command: &str) -> Vec<Completion> {
     out
 }
 
-pub fn r_completions(runtime: &mut RRuntime, token: &str) -> anyhow::Result<Vec<Completion>> {
-    let code = r_completion_code(token, token.len(), None);
-    let raw = runtime.eval_string_raw(&code)?;
-    Ok(completions_from_raw(&raw, false))
-}
-
 pub fn r_completion_code(line: &str, pos: usize, timeout: Option<f64>) -> String {
     let complete = if let Some(timeout) = timeout.filter(|value| value.is_finite() && *value > 0.0)
     {
@@ -147,7 +141,7 @@ pub fn r_completion_code(line: &str, pos: usize, timeout: Option<f64>) -> String
             "{}",
             "paste(utils:::.retrieveCompletions(), collapse='\\n')"
         ),
-        r_string(line),
+        crate::util::r_string(line),
         pos,
         complete
     )
@@ -174,11 +168,6 @@ pub fn completions_from_raw(raw: &str, spaces_around_equals: bool) -> Vec<Comple
         .collect()
 }
 
-pub fn installed_packages(runtime: &mut RRuntime) -> anyhow::Result<Vec<String>> {
-    let raw = runtime.eval_string_raw("paste(.packages(all.available = TRUE), collapse='\\n')")?;
-    Ok(raw.lines().map(ToString::to_string).collect())
-}
-
 fn split_path_word(command: &str) -> (String, String, bool) {
     let word = command.split_whitespace().last().unwrap_or("");
     let quoted = word.starts_with('"') || word.starts_with('\'');
@@ -187,38 +176,6 @@ fn split_path_word(command: &str) -> (String, String, bool) {
     let dir = path.parent().map_or("", |p| p.to_str().unwrap_or(""));
     let prefix = path.file_name().map_or("", |p| p.to_str().unwrap_or(""));
     (dir.to_string(), prefix.to_string(), quoted)
-}
-
-fn expand_path(path: &str) -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let path = if path == "~" {
-        home
-    } else if let Some(rest) = path.strip_prefix("~/") {
-        home.join(rest)
-    } else {
-        PathBuf::from(path)
-    };
-    PathBuf::from(expand_vars(&path.to_string_lossy()))
-}
-
-fn expand_vars(input: &str) -> String {
-    let mut out = String::new();
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '$' {
-            out.push(ch);
-            continue;
-        }
-        let mut name = String::new();
-        while chars
-            .peek()
-            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
-        {
-            name.push(chars.next().unwrap());
-        }
-        out.push_str(&env::var(name).unwrap_or_default());
-    }
-    out
 }
 
 fn latex_symbols() -> &'static [(String, String)] {
@@ -316,18 +273,6 @@ fn remove_nested_parens(text: &str) -> String {
     out
 }
 
-fn r_string(value: &str) -> String {
-    format!(
-        "\"{}\"",
-        value
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r")
-            .replace('\t', "\\t")
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,7 +353,7 @@ mod tests {
 
     #[test]
     fn completes_shell_directories_only_for_cd() {
-        let root = env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "orchard-complete-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -427,4 +372,3 @@ mod tests {
         );
     }
 }
-

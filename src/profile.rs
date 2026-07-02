@@ -21,7 +21,7 @@ pub fn source_commands(cli: &Cli) -> Vec<String> {
         .map(|p| {
             format!(
                 "base::source({}, local = base::new.env())\n",
-                r_string(&p.display().to_string())
+                crate::util::r_string(&p.display().to_string())
             )
         })
         .collect()
@@ -36,12 +36,17 @@ pub fn profile_paths(cli: &Cli) -> Vec<PathBuf> {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         paths.push(PathBuf::from(xdg).join("orchard").join("profile"));
     } else if cfg!(windows) {
-        paths.push(home().join("orchard").join("profile"));
+        paths.push(crate::util::home().join("orchard").join("profile"));
     } else {
-        paths.push(home().join(".config").join("orchard").join("profile"));
+        paths.push(
+            crate::util::home()
+                .join(".config")
+                .join("orchard")
+                .join("profile"),
+        );
     }
 
-    let global = home().join(".orchard_profile");
+    let global = crate::util::home().join(".orchard_profile");
     paths.push(global.clone());
 
     let local = PathBuf::from(".orchard_profile");
@@ -52,25 +57,7 @@ pub fn profile_paths(cli: &Cli) -> Vec<PathBuf> {
 }
 
 fn expand_home(path: &Path) -> PathBuf {
-    let s = path.to_string_lossy();
-    if s == "~" {
-        return home();
-    }
-    if let Some(rest) = s.strip_prefix("~/") {
-        return home().join(rest);
-    }
-    path.to_path_buf()
-}
-
-fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn r_string(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    PathBuf::from(crate::util::expand_tilde(&path.to_string_lossy()))
 }
 
 #[cfg(test)]
@@ -85,4 +72,3 @@ mod tests {
         assert!(profile_paths(&cli)[0].ends_with("custom.R"));
     }
 }
-

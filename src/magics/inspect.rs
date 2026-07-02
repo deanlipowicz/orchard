@@ -3,8 +3,9 @@ use crate::r_runtime;
 
 fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
     let wrapped = format!("capture.output({code})");
-    let text = r_runtime::eval_string_raw_global(&wrapped)
-        .map_err(|e| magic::MagicError { message: e.to_string() })?;
+    let text = r_runtime::eval_string_raw_global(&wrapped).map_err(|e| magic::MagicError {
+        message: e.to_string(),
+    })?;
     Ok(Output::Text(text))
 }
 
@@ -12,8 +13,9 @@ fn eval_with_pkg_check(code: &str, pkg: &str) -> Result<Output, magic::MagicErro
     let check = format!(
         "if (!requireNamespace('{pkg}', quietly=TRUE)) stop('package {pkg} is not installed')"
     );
-    r_runtime::eval_string_raw_global(&check)
-        .map_err(|e| magic::MagicError { message: e.to_string() })?;
+    r_runtime::eval_string_raw_global(&check).map_err(|e| magic::MagicError {
+        message: e.to_string(),
+    })?;
     eval_r_captured(code)
 }
 
@@ -59,10 +61,7 @@ impl MagicHandler for Pdoc {
                 message: "Usage: %pdoc <topic>".into(),
             });
         }
-        eval_r_captured(&format!(
-            r#"tools::Rd2txt(utils::help("{}"))"#,
-            line.args
-        ))
+        eval_r_captured(&format!(r#"tools::Rd2txt(utils::help("{}"))"#, line.args))
     }
 }
 
@@ -109,10 +108,7 @@ impl MagicHandler for Psource {
             });
         }
         // deparse() gives lines of source; capture.output() joins them
-        eval_r_captured(&format!(
-            "cat(deparse({}), sep=\"\\n\")",
-            line.args
-        ))
+        eval_r_captured(&format!("cat(deparse({}), sep=\"\\n\")", line.args))
     }
 }
 
@@ -290,10 +286,7 @@ impl MagicHandler for Str {
             });
         }
         // str() outputs to stderr by default — use str(..., give.attr=FALSE)
-        eval_r_captured(&format!(
-            "utils::str({}, give.attr=FALSE)",
-            line.args
-        ))
+        eval_r_captured(&format!("utils::str({}, give.attr=FALSE)", line.args))
     }
 }
 
@@ -339,10 +332,7 @@ impl MagicHandler for Skim {
                 message: "Usage: %skim <data.frame>".into(),
             });
         }
-        eval_with_pkg_check(
-            &format!("skimr::skim({})", line.args),
-            "skimr",
-        )
+        eval_with_pkg_check(&format!("skimr::skim({})", line.args), "skimr")
     }
 }
 
@@ -365,10 +355,7 @@ impl MagicHandler for Dim {
                 message: "Usage: %dim <expression>".into(),
             });
         }
-        eval_r_captured(&format!(
-            r#"cat(deparse(dim({})), "\n")"#,
-            line.args
-        ))
+        eval_r_captured(&format!(r#"cat(deparse(dim({})), "\n")"#, line.args))
     }
 }
 
@@ -414,8 +401,11 @@ impl MagicHandler for Plot {
                 message: "Usage: %plot <expression>".into(),
             });
         }
-        r_runtime::eval_string_raw_global(&format!("plot({})", line.args))
-            .map_err(|e| magic::MagicError { message: e.to_string() })?;
+        r_runtime::eval_string_raw_global(&format!("plot({})", line.args)).map_err(|e| {
+            magic::MagicError {
+                message: e.to_string(),
+            }
+        })?;
         Ok(Output::Text("Plot sent to graphics device.\n".into()))
     }
 }
@@ -439,10 +429,7 @@ impl MagicHandler for Tidy {
                 message: "Usage: %tidy <model>".into(),
             });
         }
-        eval_with_pkg_check(
-            &format!("broom::tidy({})", line.args),
-            "broom",
-        )
+        eval_with_pkg_check(&format!("broom::tidy({})", line.args), "broom")
     }
 }
 
@@ -465,8 +452,11 @@ impl MagicHandler for View {
                 message: "Usage: %View <expression>".into(),
             });
         }
-        r_runtime::eval_string_raw_global(&format!("utils::View({})", line.args))
-            .map_err(|e| magic::MagicError { message: e.to_string() })?;
+        r_runtime::eval_string_raw_global(&format!("utils::View({})", line.args)).map_err(|e| {
+            magic::MagicError {
+                message: e.to_string(),
+            }
+        })?;
         Ok(Output::Silent)
     }
 }

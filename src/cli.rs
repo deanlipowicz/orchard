@@ -34,22 +34,6 @@ pub struct Cli {
     pub restore_data: bool,
     #[arg(long)]
     pub debug: bool,
-    #[arg(long, hide = true)]
-    pub coverage: bool,
-    #[arg(long, hide = true)]
-    pub cprofile: bool,
-    #[arg(long = "no-save", hide = true)]
-    pub no_save: bool,
-    #[arg(long = "no-restore-data", hide = true)]
-    pub no_restore_data: bool,
-    #[arg(long = "no-restore-history", hide = true)]
-    pub no_restore_history: bool,
-    #[arg(long = "no-restore", hide = true)]
-    pub no_restore: bool,
-    #[arg(long = "no-readline", hide = true)]
-    pub no_readline: bool,
-    #[arg(long, hide = true)]
-    pub interactive: bool,
 }
 
 impl Cli {
@@ -115,8 +99,6 @@ mod tests {
             ("--ask-save", |cli| cli.ask_save),
             ("--restore-data", |cli| cli.restore_data),
             ("--debug", |cli| cli.debug),
-            ("--coverage", |cli| cli.coverage),
-            ("--cprofile", |cli| cli.cprofile),
         ];
 
         for (flag, is_set) in cases {
@@ -150,20 +132,4 @@ mod tests {
         assert!(cli.no_site_file);
         assert!(cli.no_init_file);
     }
-
-    #[test]
-    fn accepts_ignored_flags() {
-        let cli = Cli::parse_from([
-            "orchard",
-            "--no-save",
-            "--no-restore-data",
-            "--no-restore-history",
-            "--no-restore",
-            "--no-readline",
-            "--interactive",
-        ]);
-        assert!(cli.no_save && cli.no_restore_data && cli.no_restore_history);
-        assert!(cli.no_restore && cli.no_readline && cli.interactive);
-    }
 }
-

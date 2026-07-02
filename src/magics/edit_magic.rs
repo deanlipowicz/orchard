@@ -11,7 +11,11 @@ fn macros() -> &'static Mutex<HashMap<String, String>> {
 }
 
 fn join_entries(entries: &[crate::history::Entry]) -> String {
-    entries.iter().map(|e| e.text.as_str()).collect::<Vec<_>>().join("\n")
+    entries
+        .iter()
+        .map(|e| e.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn create_temp_file(code: &str) -> Result<PathBuf, magic::MagicError> {
@@ -19,10 +23,14 @@ fn create_temp_file(code: &str) -> Result<PathBuf, magic::MagicError> {
     match std::fs::File::create(&path) {
         Ok(mut f) => {
             use std::io::Write;
-            write!(f, "{}", code).map_err(|e| magic::MagicError { message: e.to_string() })?;
+            write!(f, "{}", code).map_err(|e| magic::MagicError {
+                message: e.to_string(),
+            })?;
             Ok(path)
         }
-        Err(e) => Err(magic::MagicError { message: e.to_string() }),
+        Err(e) => Err(magic::MagicError {
+            message: e.to_string(),
+        }),
     }
 }
 
@@ -32,22 +40,24 @@ fn resolve_edit_target(args: &str) -> Result<(PathBuf, Option<String>), magic::M
         let entries = crate::magics::history_magics::get_history_snapshot();
         let n = entries.len().saturating_sub(1);
         if n == 0 {
-            return Err(magic::MagicError { message: "History is empty".into() });
+            return Err(magic::MagicError {
+                message: "History is empty".into(),
+            });
         }
         let code = join_entries(&entries[n..]);
         let path = create_temp_file(&code)?;
         Ok((path, None))
     } else if let Some(rest) = args.strip_prefix('$') {
         // %edit $N — edit entry by absolute index (1-based)
-        let n: usize = rest.parse().map_err(|_| {
-            magic::MagicError { message: format!("Invalid history index: {rest}") }
+        let n: usize = rest.parse().map_err(|_| magic::MagicError {
+            message: format!("Invalid history index: {rest}"),
         })?;
         let entries = crate::magics::history_magics::get_history_snapshot();
-        let idx = n.checked_sub(1).ok_or_else(|| {
-            magic::MagicError { message: "Index must be ≥ 1".into() }
+        let idx = n.checked_sub(1).ok_or_else(|| magic::MagicError {
+            message: "Index must be ≥ 1".into(),
         })?;
-        let selected = entries.get(idx).ok_or_else(|| {
-            magic::MagicError { message: format!("No entry {n} (max {})", entries.len()) }
+        let selected = entries.get(idx).ok_or_else(|| magic::MagicError {
+            message: format!("No entry {n} (max {})", entries.len()),
         })?;
         let code = selected.text.clone();
         let path = create_temp_file(&code)?;
@@ -66,22 +76,24 @@ fn resolve_edit_target(args: &str) -> Result<(PathBuf, Option<String>), magic::M
     } else if args.contains('-') {
         // Range: %edit N-M
         let entries = crate::magics::history_magics::get_history_snapshot();
-        let selected = crate::magics::history_magics::resolve_range(args, &entries).ok_or_else(|| {
-            magic::MagicError {
-                message: format!("Invalid range: '{args}' (max {})", entries.len()),
-            }
-        })?;
+        let selected =
+            crate::magics::history_magics::resolve_range(args, &entries).ok_or_else(|| {
+                magic::MagicError {
+                    message: format!("Invalid range: '{args}' (max {})", entries.len()),
+                }
+            })?;
         let code = join_entries(&selected);
         let path = create_temp_file(&code)?;
         Ok((path, None))
     } else if args.starts_with('-') {
         // Negative: %edit -N
         let entries = crate::magics::history_magics::get_history_snapshot();
-        let selected = crate::magics::history_magics::resolve_range(args, &entries).ok_or_else(|| {
-            magic::MagicError {
-                message: format!("Invalid range: '{args}' (max {})", entries.len()),
-            }
-        })?;
+        let selected =
+            crate::magics::history_magics::resolve_range(args, &entries).ok_or_else(|| {
+                magic::MagicError {
+                    message: format!("Invalid range: '{args}' (max {})", entries.len()),
+                }
+            })?;
         let code = join_entries(&selected);
         let path = create_temp_file(&code)?;
         Ok((path, None))
@@ -105,7 +117,9 @@ fn resolve_edit_target(args: &str) -> Result<(PathBuf, Option<String>), magic::M
 pub struct Macro;
 
 impl MagicHandler for Macro {
-    fn name(&self) -> &'static str { "macro" }
+    fn name(&self) -> &'static str {
+        "macro"
+    }
     fn description(&self) -> &'static str {
         "Store a named history snippet: %macro <name> <- <code>, %macro <name> to recall"
     }
@@ -140,16 +154,25 @@ impl MagicHandler for Macro {
                     message: "Usage: %macro <name> <- <code>".into(),
                 });
             }
-            macros().lock().unwrap().insert(name.to_string(), code.to_string());
-            Ok(Output::Text(format!("Stored macro '{name}' ({} chars)\n", code.len())))
+            macros()
+                .lock()
+                .unwrap()
+                .insert(name.to_string(), code.to_string());
+            Ok(Output::Text(format!(
+                "Stored macro '{name}' ({} chars)\n",
+                code.len()
+            )))
         } else {
             // Recall: %macro name — evaluate and return
             let map = macros().lock().unwrap();
             match map.get(args) {
                 Some(code) => {
                     // Evaluate the stored code in R
-                    crate::r_runtime::eval_string_raw_global(code)
-                        .map_err(|e| magic::MagicError { message: e.to_string() })?;
+                    crate::r_runtime::eval_string_raw_global(code).map_err(|e| {
+                        magic::MagicError {
+                            message: e.to_string(),
+                        }
+                    })?;
                     Ok(Output::Text(format!("[macro {}]\n", args)))
                 }
                 None => Err(magic::MagicError {
@@ -166,7 +189,9 @@ impl MagicHandler for Macro {
 pub struct Edit;
 
 impl MagicHandler for Edit {
-    fn name(&self) -> &'static str { "edit" }
+    fn name(&self) -> &'static str {
+        "edit"
+    }
     fn description(&self) -> &'static str {
         "Open R code in external editor (vim by default)"
     }
@@ -196,11 +221,13 @@ impl MagicHandler for Edit {
         if !edited.trim().is_empty() {
             // If we had a backup code (editing a filename directly), compare
             if let Some(ref original) = backup
-                && edited.trim() == original.trim() {
-                    return Ok(Output::Text("(no changes)\n".into()));
-                }
-            crate::r_runtime::eval_string_raw_global(&edited)
-                .map_err(|e| magic::MagicError { message: e.to_string() })?;
+                && edited.trim() == original.trim()
+            {
+                return Ok(Output::Text("(no changes)\n".into()));
+            }
+            crate::r_runtime::eval_string_raw_global(&edited).map_err(|e| magic::MagicError {
+                message: e.to_string(),
+            })?;
             Ok(Output::Text(format!("Sourced edited file ({editor})\n")))
         } else {
             Ok(Output::Text("(empty file, nothing sourced)\n".into()))

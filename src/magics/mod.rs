@@ -1,11 +1,11 @@
 pub mod config;
 pub mod debug;
 pub mod edit_magic;
+pub mod file_magics;
 pub mod history_magics;
 pub mod inspect;
 pub mod lsmagic;
 pub mod magic_help;
-pub mod file_magics;
 pub mod shell;
 pub mod timing;
 pub mod workspace;

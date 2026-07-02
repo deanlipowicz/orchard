@@ -273,4 +273,3 @@ mod tests {
         env::temp_dir().join(format!("orchard-dyld-test-{nanos}"))
     }
 }
-

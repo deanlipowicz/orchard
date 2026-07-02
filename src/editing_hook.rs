@@ -1,7 +1,6 @@
-use crate::{
-    lexer::cursor_in_string,
-    r_runtime::ConsoleSettings,
-};
+#[cfg(test)]
+use crate::settings::Settings;
+use crate::{lexer::cursor_in_string, r_runtime::ConsoleSettings};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use reedline::{EditCommand, ReedlineEvent};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,7 +36,6 @@ pub fn handle(
     cursor: usize,
     settings: &ConsoleSettings,
 ) -> Option<ReedlineEvent> {
-
     // --- Multi-chord sequences (check before clearing the prefix flag) ---
     if let Event::Key(KeyEvent {
         code,
@@ -45,19 +43,21 @@ pub fn handle(
         kind: KeyEventKind::Press,
         ..
     }) = &event
-        && *modifiers == KeyModifiers::CONTROL {
-            match code {
-                KeyCode::Char('x') | KeyCode::Char('X') => {
-                    CTRL_X_PRESSED.store(true, Ordering::SeqCst);
-                    return None; // pass through (Ctrl+X is a no-op in emacs)
-                }
-                KeyCode::Char('e') | KeyCode::Char('E')
-                    if CTRL_X_PRESSED.swap(false, Ordering::SeqCst) => {
-                        return Some(ReedlineEvent::OpenEditor);
-                    }
-                _ => {}
+        && *modifiers == KeyModifiers::CONTROL
+    {
+        match code {
+            KeyCode::Char('x') | KeyCode::Char('X') => {
+                CTRL_X_PRESSED.store(true, Ordering::SeqCst);
+                return None; // pass through (Ctrl+X is a no-op in emacs)
             }
+            KeyCode::Char('e') | KeyCode::Char('E')
+                if CTRL_X_PRESSED.swap(false, Ordering::SeqCst) =>
+            {
+                return Some(ReedlineEvent::OpenEditor);
+            }
+            _ => {}
         }
+    }
 
     // Clear the prefix flag for any other keypress
     CTRL_X_PRESSED.store(false, Ordering::SeqCst);
@@ -230,7 +230,10 @@ fn enter_indent(buffer: &str, cursor: usize, settings: &ConsoleSettings) -> Opti
     }
     let before = &buffer[..cursor];
     let line_start = before.rfind('\n').map_or(0, |i| i + 1);
-    let current_indent = before[line_start..].chars().take_while(|c| *c == ' ').count();
+    let current_indent = before[line_start..]
+        .chars()
+        .take_while(|c| *c == ' ')
+        .count();
     let extra = if before.trim_end().ends_with('{') {
         settings.tab_size.max(1) as usize
     } else {
@@ -350,8 +353,25 @@ mod tests {
     use super::*;
     use reedline::ReedlineEvent;
 
+    /// Unwrap an `Option<ReedlineEvent::Edit(cmds)>`, asserting it is present
+    /// and contains exactly `expected_len` commands. Returns the command slice.
+    fn assert_edit_commands(result: &Option<ReedlineEvent>, expected_len: usize) -> &[EditCommand] {
+        match result {
+            Some(ReedlineEvent::Edit(cmds)) => {
+                assert_eq!(
+                    cmds.len(),
+                    expected_len,
+                    "expected {expected_len} commands, got {}: {cmds:?}",
+                    cmds.len()
+                );
+                cmds
+            }
+            other => panic!("expected Edit event, got {other:?}"),
+        }
+    }
+
     fn settings_with_auto_match() -> ConsoleSettings {
-        let mut s = ConsoleSettings::default();
+        let mut s = ConsoleSettings::from(Settings::default());
         s.auto_match = true;
         s.auto_indentation = true;
         s.tab_size = 4;
@@ -363,7 +383,10 @@ mod tests {
     #[test]
     fn auto_pair_inserts_pair_when_context_allows() {
         let result = auto_pair("foo", 3, '(', ')');
-        assert!(result.is_some());
+        let cmds = assert_edit_commands(&result, 3);
+        assert!(matches!(cmds[0], EditCommand::InsertChar('(')));
+        assert!(matches!(cmds[1], EditCommand::InsertChar(')')));
+        assert!(matches!(cmds[2], EditCommand::MoveLeft { select: false }));
     }
 
     #[test]
@@ -387,7 +410,15 @@ mod tests {
     #[test]
     fn closing_delim_dedents_blank_line() {
         let result = closing_delimiter("    ", 4, KeyCode::Char('}'), 4);
-        assert!(result.is_some());
+        let cmds = assert_edit_commands(&result, 5);
+        // 4 Backspace + 1 InsertChar('}')
+        for cmd in cmds.iter().take(4) {
+            assert!(
+                matches!(cmd, EditCommand::Backspace),
+                "cmd should be Backspace"
+            );
+        }
+        assert!(matches!(cmds[4], EditCommand::InsertChar('}')));
     }
 
     #[test]
@@ -401,13 +432,21 @@ mod tests {
     #[test]
     fn backspace_deletes_empty_pair() {
         let result = smart_backspace("()", 1, 4);
-        assert!(result.is_some());
+        let cmds = assert_edit_commands(&result, 2);
+        assert!(matches!(cmds[0], EditCommand::Backspace));
+        assert!(matches!(cmds[1], EditCommand::Delete));
     }
 
     #[test]
     fn backspace_in_leading_indent_deletes_tab_size() {
         let result = smart_backspace("    x", 4, 4);
-        assert!(result.is_some());
+        let cmds = assert_edit_commands(&result, 4);
+        for (i, cmd) in cmds.iter().enumerate() {
+            assert!(
+                matches!(cmd, EditCommand::Backspace),
+                "cmd {i} should be Backspace"
+            );
+        }
     }
 
     #[test]
@@ -422,7 +461,15 @@ mod tests {
     fn enter_indents_after_open_brace() {
         let settings = settings_with_auto_match();
         let result = enter_indent("if (x) {", 8, &settings);
-        assert!(result.is_some());
+        let cmds = assert_edit_commands(&result, 2);
+        assert!(matches!(cmds[0], EditCommand::InsertNewline));
+        // Extra indent = tab_size (4) since line ends with '{'
+        if let EditCommand::InsertString(s) = &cmds[1] {
+            assert_eq!(s.len(), 4, "expected 4 spaces of indent after open brace");
+            assert!(s.chars().all(|c| c == ' '), "indent should be spaces");
+        } else {
+            panic!("expected InsertString for indent, got {:?}", cmds[1]);
+        }
     }
 
     #[test]
@@ -441,7 +488,13 @@ mod tests {
     #[test]
     fn tab_inserts_spaces_in_leading_indent() {
         let result = smart_tab("  x", 2, 4);
-        assert!(result.is_some());
+        let cmds = assert_edit_commands(&result, 1);
+        if let EditCommand::InsertString(s) = &cmds[0] {
+            assert_eq!(s.len(), 4, "smart_tab should insert tab_size (4) spaces");
+            assert!(s.chars().all(|c| c == ' '), "tab should insert spaces");
+        } else {
+            panic!("expected InsertString, got {:?}", cmds[0]);
+        }
     }
 
     #[test]
@@ -527,7 +580,11 @@ mod tests {
         assert!(result.is_some());
         if let Some(ReedlineEvent::Edit(cmds)) = result {
             // InsertChar('('), InsertChar(')'), InsertChar('-') x3, InsertChar('"'), MoveLeft x5 = 11
-            assert_eq!(cmds.len(), 1 + 1 + 3 + 1 + 5, "expected 11 commands, got {cmds:?}");
+            assert_eq!(
+                cmds.len(),
+                1 + 1 + 3 + 1 + 5,
+                "expected 11 commands, got {cmds:?}"
+            );
         }
     }
 
@@ -570,11 +627,8 @@ mod tests {
     fn ctrl_x_does_not_interfere_with_normal_keys() {
         CTRL_X_PRESSED.store(false, Ordering::SeqCst);
         // Ctrl+X alone should return None (pass through)
-        let event = Event::Key(KeyEvent::new(
-            KeyCode::Char('x'),
-            KeyModifiers::CONTROL,
-        ));
-        let result = handle(&event, "", 0, &ConsoleSettings::default());
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        let result = handle(&event, "", 0, &Settings::default().into());
         assert!(result.is_none(), "Ctrl+X alone should pass through");
         // Flag should be set after Ctrl+X
         assert!(CTRL_X_PRESSED.load(Ordering::SeqCst));
@@ -586,19 +640,13 @@ mod tests {
     fn ctrl_x_ctrl_e_opens_editor() {
         CTRL_X_PRESSED.store(false, Ordering::SeqCst);
         // Simulate Ctrl+X press
-        let ctrl_x = Event::Key(KeyEvent::new(
-            KeyCode::Char('x'),
-            KeyModifiers::CONTROL,
-        ));
-        let _ = handle(&ctrl_x, "", 0, &ConsoleSettings::default());
+        let ctrl_x = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        let _ = handle(&ctrl_x, "", 0, &Settings::default().into());
         assert!(CTRL_X_PRESSED.load(Ordering::SeqCst));
 
         // Simulate Ctrl+E press right after
-        let ctrl_e = Event::Key(KeyEvent::new(
-            KeyCode::Char('e'),
-            KeyModifiers::CONTROL,
-        ));
-        let result = handle(&ctrl_e, "", 0, &ConsoleSettings::default());
+        let ctrl_e = Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+        let result = handle(&ctrl_e, "", 0, &Settings::default().into());
         assert!(matches!(result, Some(ReedlineEvent::OpenEditor)));
         // Flag should be consumed
         assert!(!CTRL_X_PRESSED.load(Ordering::SeqCst));
@@ -608,19 +656,13 @@ mod tests {
     fn ctrl_x_then_other_key_clears_flag() {
         CTRL_X_PRESSED.store(false, Ordering::SeqCst);
         // Ctrl+X
-        let ctrl_x = Event::Key(KeyEvent::new(
-            KeyCode::Char('x'),
-            KeyModifiers::CONTROL,
-        ));
-        let _ = handle(&ctrl_x, "", 0, &ConsoleSettings::default());
+        let ctrl_x = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        let _ = handle(&ctrl_x, "", 0, &Settings::default().into());
         assert!(CTRL_X_PRESSED.load(Ordering::SeqCst));
 
         // Some other keypress (Ctrl+D)
-        let ctrl_d = Event::Key(KeyEvent::new(
-            KeyCode::Char('d'),
-            KeyModifiers::CONTROL,
-        ));
-        let _ = handle(&ctrl_d, "", 0, &ConsoleSettings::default());
+        let ctrl_d = Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        let _ = handle(&ctrl_d, "", 0, &Settings::default().into());
         // Flag should be cleared
         assert!(!CTRL_X_PRESSED.load(Ordering::SeqCst));
     }
@@ -659,7 +701,10 @@ mod tests {
         assert!(result.is_some());
         if let Some(ReedlineEvent::Edit(cmds)) = result {
             if let EditCommand::InsertString(s) = &cmds[0] {
-                assert_eq!(s, "b\nc", "CRLF should be normalized, trailing newline stripped");
+                assert_eq!(
+                    s, "b\nc",
+                    "CRLF should be normalized, trailing newline stripped"
+                );
             } else {
                 panic!("expected InsertString");
             }
@@ -669,11 +714,8 @@ mod tests {
     #[test]
     fn ctrl_e_without_prefix_does_not_open_editor() {
         CTRL_X_PRESSED.store(false, Ordering::SeqCst);
-        let ctrl_e = Event::Key(KeyEvent::new(
-            KeyCode::Char('e'),
-            KeyModifiers::CONTROL,
-        ));
-        let result = handle(&ctrl_e, "", 0, &ConsoleSettings::default());
+        let ctrl_e = Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+        let result = handle(&ctrl_e, "", 0, &Settings::default().into());
         // Without Ctrl+X prefix, Ctrl+E should not open the editor
         assert!(
             !matches!(result, Some(ReedlineEvent::OpenEditor)),
@@ -688,11 +730,8 @@ mod tests {
         SHELL_MODE.store(false, Ordering::SeqCst);
         set_shell_mode(true);
 
-        let event = Event::Key(KeyEvent::new(
-            KeyCode::Backspace,
-            KeyModifiers::NONE,
-        ));
-        let result = handle(&event, "", 0, &ConsoleSettings::default());
+        let event = Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        let result = handle(&event, "", 0, &Settings::default().into());
         assert!(
             matches!(result, Some(ReedlineEvent::Enter)),
             "Backspace on empty buffer in shell mode should submit"
@@ -706,12 +745,9 @@ mod tests {
         SHELL_MODE.store(false, Ordering::SeqCst);
         set_shell_mode(true);
 
-        let event = Event::Key(KeyEvent::new(
-            KeyCode::Backspace,
-            KeyModifiers::NONE,
-        ));
+        let event = Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         // Cursor at position 1, buffer has "x" → should not submit
-        let result = handle(&event, "x", 1, &ConsoleSettings::default());
+        let result = handle(&event, "x", 1, &Settings::default().into());
         assert!(
             !matches!(result, Some(ReedlineEvent::Enter)),
             "Backspace with non-empty buffer should not submit in shell mode"
@@ -726,15 +762,11 @@ mod tests {
         // Ensure shell mode is NOT set
         set_shell_mode(false);
 
-        let event = Event::Key(KeyEvent::new(
-            KeyCode::Backspace,
-            KeyModifiers::NONE,
-        ));
-        let result = handle(&event, "", 0, &ConsoleSettings::default());
+        let event = Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        let result = handle(&event, "", 0, &Settings::default().into());
         assert!(
             !matches!(result, Some(ReedlineEvent::Enter)),
             "Backspace in normal mode should not submit"
         );
     }
 }
-

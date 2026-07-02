@@ -121,8 +121,6 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::inspect::Pfile));
 
     // P3 — Debugging and timing
-    registry.register(Arc::new(crate::magics::debug::Debug));
-    registry.register(Arc::new(crate::magics::debug::Pdb));
     registry.register(Arc::new(crate::magics::debug::Traceback));
     registry.register(Arc::new(crate::magics::debug::Where));
     registry.register(Arc::new(crate::magics::debug::Continue));
@@ -153,9 +151,187 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::file_magics::Load));
 }
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/// Split "name arg1 arg2" into ("name", "arg1 arg2").
+fn split_name_args(input: &str) -> (&str, &str) {
+    let trimmed = input.trim_start();
+    let end = trimmed
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(trimmed.len());
+    let name = &trimmed[..end];
+    let args = trimmed[end..].trim_start();
+    (name, args)
+}
+
+/// Try to parse a magic command from the input line.
+///
+/// Returns `None` if the line is not a magic command. When `automagic` is true,
+/// lines starting with a registered magic name (not followed by `(`) are also
+/// treated as magic commands.
+pub fn parse_magic(text: &str, automagic: bool) -> Option<MagicLine> {
+    let trimmed = text.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Check for `%` or `%%` prefix
+    if let Some(rest) = trimmed.strip_prefix("%%") {
+        let (name, args) = split_name_args(rest);
+        return Some(MagicLine {
+            name: name.to_string(),
+            args: args.to_string(),
+            is_cell: true,
+        });
+    }
+    if let Some(rest) = trimmed.strip_prefix('%') {
+        let (name, args) = split_name_args(rest);
+        return Some(MagicLine {
+            name: name.to_string(),
+            args: args.to_string(),
+            is_cell: false,
+        });
+    }
+
+    // Automagic: no `%` prefix, but line starts with a registered magic name
+    // and is not an R function call (i.e. not followed by `(`).
+    if automagic {
+        let (candidate, _rest) = split_name_args(trimmed);
+        if !candidate.is_empty() && is_magic_name(candidate) {
+            let after_name = &trimmed[candidate.len()..].trim_start();
+            if !after_name.starts_with('(') {
+                let (name, args) = split_name_args(trimmed);
+                return Some(MagicLine {
+                    name: name.to_string(),
+                    args: args.to_string(),
+                    is_cell: false,
+                });
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if a magic name is registered.
+pub fn is_magic_name(name: &str) -> bool {
+    let reg = magic_registry().lock().unwrap();
+    reg.get(name).is_some()
+}
+
+/// Dispatch a magic command to its registered handler.
+pub fn dispatch(cmd: &MagicLine) -> Result<Output, MagicError> {
+    // Clone the handler Arc out of the registry to release the lock before
+    // calling handler.run(), because handlers may also lock the registry
+    // (e.g. %lsmagic reads the handler list).
+    let handler = {
+        let reg = magic_registry().lock().unwrap();
+        reg.get(&cmd.name)
+            .ok_or_else(|| MagicError {
+                message: format!("Unknown magic: {}", cmd.name),
+            })?
+            .clone()
+    };
+    handler.run(cmd)
+}
+
+/// Register a magic handler by name.
+pub fn register_magic(handler: Arc<dyn MagicHandler>) {
+    let mut reg = magic_registry().lock().unwrap();
+    reg.register(handler);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_percent_prefix_magic() {
+        let cmd = parse_magic("%lsmagic", false).unwrap();
+        assert_eq!(cmd.name, "lsmagic");
+        assert!(cmd.args.is_empty());
+        assert!(!cmd.is_cell);
+    }
+
+    #[test]
+    fn parse_percent_magic_with_args() {
+        let cmd = parse_magic("%who data.frame", false).unwrap();
+        assert_eq!(cmd.name, "who");
+        assert_eq!(cmd.args, "data.frame");
+    }
+
+    #[test]
+    fn parse_non_magic_returns_none() {
+        assert!(parse_magic("1 + 1", false).is_none());
+        assert!(parse_magic("ls()", false).is_none());
+        assert!(parse_magic("", false).is_none());
+    }
+
+    #[test]
+    fn parse_magic_with_leading_whitespace() {
+        let cmd = parse_magic("  %lsmagic", false).unwrap();
+        assert_eq!(cmd.name, "lsmagic");
+    }
+
+    #[test]
+    fn automagic_enables_prefixless_magic() {
+        // The name must be registered for automagic to work; lsmagic is registered by default
+        let cmd = parse_magic("lsmagic", true).unwrap();
+        assert_eq!(cmd.name, "lsmagic");
+        assert!(cmd.args.is_empty());
+    }
+
+    #[test]
+    fn automagic_does_not_consume_r_function_calls() {
+        // If a name is registered but the input looks like an R call (has `(`), skip
+        assert!(parse_magic("lsmagic()", true).is_none());
+        assert!(parse_magic("lsmagic(x)", true).is_none());
+    }
+
+    #[test]
+    fn parse_cell_magic() {
+        let cmd = parse_magic("%%timeit", false).unwrap();
+        assert_eq!(cmd.name, "timeit");
+        assert!(cmd.is_cell);
+    }
+
+    #[test]
+    fn lsmagic_lists_registered_magics() {
+        let reg = magic_registry().lock().unwrap();
+        let names = reg.list_all();
+        assert!(names.contains(&"lsmagic"));
+        assert!(names.contains(&"magic"));
+    }
+
+    #[test]
+    fn dispatch_known_magic_succeeds() {
+        let cmd = MagicLine {
+            name: "lsmagic".to_string(),
+            args: String::new(),
+            is_cell: false,
+        };
+        let result = dispatch(&cmd).unwrap();
+        match result {
+            Output::Text(_) => {} // lsmagic returns Text listing available magics
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn dispatch_unknown_magic_fails() {
+        let cmd = MagicLine {
+            name: "nonexistent".to_string(),
+            args: String::new(),
+            is_cell: false,
+        };
+        assert!(dispatch(&cmd).is_err());
+    }
+
+    #[test]
+    fn is_magic_name_works() {
+        assert!(is_magic_name("lsmagic"));
+        assert!(!is_magic_name("nonexistent_magic_name_12345"));
+    }
 
     #[test]
     fn test_parse_magic_line_basic() {
@@ -178,7 +354,9 @@ mod tests {
 
     #[test]
     fn test_magic_error_display() {
-        let err = MagicError { message: "something went wrong".into() };
+        let err = MagicError {
+            message: "something went wrong".into(),
+        };
         assert_eq!(err.to_string(), "magic error: something went wrong");
     }
 }

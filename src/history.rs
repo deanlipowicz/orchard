@@ -34,7 +34,7 @@ impl History {
         let path = if cli.local_history || (!cli.global_history && local.exists()) {
             local
         } else {
-            expand_home(&settings.global_history_file)
+            PathBuf::from(crate::util::expand_tilde(&settings.global_history_file))
         };
 
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -368,23 +368,6 @@ fn write_entry(mut out: impl Write, entry: &Entry) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn expand_home(path: &str) -> PathBuf {
-    if path == "~" {
-        return home();
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        return home().join(rest);
-    }
-    PathBuf::from(path)
-}
-
-fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
 fn utc_now() -> String {
     chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
@@ -524,6 +507,269 @@ mod tests {
         assert_eq!(h.entries.last().unwrap().text, "x19");
     }
 
+    // --- Malformed-input recovery tests for parse() ---
+
+    #[test]
+    fn parse_empty_input_returns_no_entries() {
+        assert!(parse("").is_empty());
+    }
+
+    #[test]
+    fn parse_only_whitespace_returns_no_entries() {
+        assert!(parse("\n\n\n").is_empty());
+    }
+
+    #[test]
+    fn parse_only_headers_no_content_returns_no_entries() {
+        let input = "\n# time: 2024-01-01 00:00:00 UTC\n# mode: r\n";
+        assert!(parse(input).is_empty());
+    }
+
+    #[test]
+    fn parse_content_without_mode_header_gives_empty_mode() {
+        let input = "+x <- 1\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mode, "");
+        assert_eq!(entries[0].text, "x <- 1");
+    }
+
+    #[test]
+    fn parse_truncated_mode_header_still_parses_content() {
+        // "# mode:" without space after colon — strip_prefix("# mode: ") won't match
+        let input = "# mode:r\n+x <- 1\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mode, "");
+        assert_eq!(entries[0].text, "x <- 1");
+    }
+
+    #[test]
+    fn parse_truncated_time_header_ignored() {
+        // "# time:" without full prefix — line is not a content line, not a mode line,
+        // and lines is empty, so it's silently dropped.
+        let input = "# time: 2024-01-01\n# mode: r\n+x <- 1\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mode, "r");
+        assert_eq!(entries[0].text, "x <- 1");
+    }
+
+    #[test]
+    fn parse_garbage_line_between_entries_triggers_flush() {
+        let input = "\n# mode: r\n+x <- 1\ngarbage line\n# mode: shell\n+ls\n";
+        let entries = parse(input);
+        // First entry: "x <- 1" flushed by the garbage line
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].mode, "r");
+        assert_eq!(entries[0].text, "x <- 1");
+        assert_eq!(entries[1].mode, "shell");
+        assert_eq!(entries[1].text, "ls");
+    }
+
+    #[test]
+    fn parse_garbage_before_any_content_is_dropped() {
+        let input = "garbage\n# mode: r\n+x <- 1\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mode, "r");
+        assert_eq!(entries[0].text, "x <- 1");
+    }
+
+    #[test]
+    fn parse_truncated_entry_at_eof_is_emitted() {
+        // No trailing flush line — the final `if !lines.is_empty()` block emits it.
+        let input = "# mode: r\n+x <- 1\n+y <- 2";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mode, "r");
+        assert_eq!(entries[0].text, "x <- 1\ny <- 2");
+    }
+
+    #[test]
+    fn parse_single_line_entry_at_eof() {
+        let input = "# mode: shell\n+pwd";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].mode, "shell");
+        assert_eq!(entries[0].text, "pwd");
+    }
+
+    #[test]
+    fn parse_mode_persists_across_entries() {
+        let input = "\n# mode: r\n+x <- 1\n\n+x <- 2\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].mode, "r");
+        assert_eq!(entries[0].text, "x <- 1");
+        assert_eq!(entries[1].mode, "r");
+        assert_eq!(entries[1].text, "x <- 2");
+    }
+
+    #[test]
+    fn parse_mode_change_between_entries() {
+        let input = "\n# mode: r\n+x <- 1\n\n# mode: shell\n+ls\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].mode, "r");
+        assert_eq!(entries[0].text, "x <- 1");
+        assert_eq!(entries[1].mode, "shell");
+        assert_eq!(entries[1].text, "ls");
+    }
+
+    #[test]
+    fn parse_multiline_entry_joined_with_newline() {
+        let input = "# mode: r\n+x <- 1\n+y <- 2\n+z <- 3\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "x <- 1\ny <- 2\nz <- 3");
+    }
+
+    #[test]
+    fn parse_empty_content_line_preserved_in_entry() {
+        // A "+" with nothing after it is an empty content line
+        let input = "# mode: r\n+x <- 1\n+\n+y <- 2\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "x <- 1\n\ny <- 2");
+    }
+
+    #[test]
+    fn parse_plus_prefix_stripped_from_content() {
+        let input = "# mode: r\n+print(x)\n";
+        let entries = parse(input);
+        assert_eq!(entries[0].text, "print(x)");
+    }
+
+    #[test]
+    fn parse_multiple_entries_with_blank_line_separators() {
+        let input = "\n# mode: r\n+x\n\n# mode: shell\n+ls\n\n# mode: browse\n+n\n";
+        let entries = parse(input);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].mode, "r");
+        assert_eq!(entries[0].text, "x");
+        assert_eq!(entries[1].mode, "shell");
+        assert_eq!(entries[1].text, "ls");
+        assert_eq!(entries[2].mode, "browse");
+        assert_eq!(entries[2].text, "n");
+    }
+
+    #[test]
+    fn parse_mode_line_with_trailing_whitespace_trimmed() {
+        let input = "# mode: r   \n+x <- 1\n";
+        let entries = parse(input);
+        assert_eq!(entries[0].mode, "r");
+    }
+
+    #[test]
+    fn parse_completely_garbage_input_returns_no_entries() {
+        let input = "this is not valid\nhistory format\nat all\n";
+        // No "+" lines, no mode lines — nothing to emit
+        assert!(parse(input).is_empty());
+    }
+
+    #[test]
+    fn parse_blank_line_flushes_current_entry() {
+        let input = "# mode: r\n+x <- 1\n\n+y <- 2\n";
+        let entries = parse(input);
+        // The blank line between the two "+" lines triggers a flush of "x <- 1",
+        // then "y <- 2" is emitted at EOF.
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].text, "x <- 1");
+        assert_eq!(entries[1].text, "y <- 2");
+    }
+
+    #[test]
+    fn parse_round_trip_multiple_entries() {
+        let original = vec![
+            Entry {
+                mode: "r".into(),
+                text: "x <- 1".into(),
+            },
+            Entry {
+                mode: "shell".into(),
+                text: "ls -la".into(),
+            },
+            Entry {
+                mode: "browse".into(),
+                text: "n".into(),
+            },
+        ];
+        let mut buf = Vec::new();
+        for entry in &original {
+            write_entry(&mut buf, entry).unwrap();
+        }
+        let parsed = parse(&String::from_utf8_lossy(&buf));
+        assert_eq!(parsed.len(), original.len());
+        for (got, want) in parsed.iter().zip(original.iter()) {
+            assert_eq!(got.mode, want.mode);
+            assert_eq!(got.text, want.text);
+        }
+    }
+
+    #[test]
+    fn parse_round_trip_multiline_entry() {
+        let original = vec![Entry {
+            mode: "r".into(),
+            text: "x <- 1\ny <- 2\nz <- 3".into(),
+        }];
+        let mut buf = Vec::new();
+        for entry in &original {
+            write_entry(&mut buf, entry).unwrap();
+        }
+        let parsed = parse(&String::from_utf8_lossy(&buf));
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].mode, "r");
+        assert_eq!(parsed[0].text, "x <- 1\ny <- 2\nz <- 3");
+    }
+
+    // --- parse property tests ---
+
+    use proptest::prelude::*;
+
+    fn arb_entry() -> impl Strategy<Value = Entry> {
+        (
+            prop::sample::select(vec!["r", "shell", "browse", ""]),
+            "[a-zA-Z0-9 \n.<\\-+*/()]+",
+        )
+            .prop_map(|(mode, text)| Entry {
+                mode: mode.into(),
+                text,
+            })
+    }
+
+    proptest! {
+        #[test]
+        fn prop_round_trip_single_entry(entry in arb_entry()) {
+            let mut buf = Vec::new();
+            write_entry(&mut buf, &entry).unwrap();
+            let parsed = parse(&String::from_utf8_lossy(&buf));
+            prop_assert_eq!(parsed.len(), 1);
+            prop_assert_eq!(&parsed[0].mode, &entry.mode);
+            prop_assert_eq!(&parsed[0].text, &entry.text);
+        }
+
+        #[test]
+        fn prop_round_trip_multiple_entries(entries in prop::collection::vec(arb_entry(), 1..10)) {
+            let mut buf = Vec::new();
+            for entry in &entries {
+                write_entry(&mut buf, entry).unwrap();
+            }
+            let parsed = parse(&String::from_utf8_lossy(&buf));
+            prop_assert_eq!(parsed.len(), entries.len());
+            for (got, want) in parsed.iter().zip(entries.iter()) {
+                prop_assert_eq!(&got.mode, &want.mode);
+                prop_assert_eq!(&got.text, &want.text);
+            }
+        }
+
+        #[test]
+        fn prop_parse_never_panics(input in ".*") {
+            // parse should never panic on arbitrary input
+            let _ = parse(&input);
+        }
+    }
+
     // --- OrchardHistoryBackend tests ---
 
     #[test]
@@ -653,8 +899,6 @@ mod tests {
         assert!(results.iter().any(|i| i.command_line == "plot(mean)"));
     }
 }
-
-
 
 // Accessor for magics that need a snapshot of the current history
 pub fn get_history_snapshot() -> Vec<String> {

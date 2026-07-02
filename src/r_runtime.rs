@@ -2,9 +2,11 @@ use crate::{
     cli::Cli,
     editing_hook,
     history::{History, OrchardHistoryBackend},
+    magic::{self, Output as MagicOutput},
     prompt::{PromptSession, ReadResult},
     settings::{CustomKeyBinding, Settings},
     shell,
+    util::r_string,
 };
 use anyhow::{Context, bail};
 use libc::{c_char, c_int, c_uchar};
@@ -14,8 +16,7 @@ use std::{
     ffi::{CStr, CString},
     io::{self, IsTerminal, Write},
     path::Path,
-    ptr,
-    slice,
+    ptr, slice,
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex, OnceLock},
 };
@@ -78,7 +79,15 @@ impl PromptMode {
     }
 }
 
-#[allow(non_camel_case_types, non_snake_case, non_upper_case_globals, dead_code, clippy::upper_case_acronyms)]
+#[allow(
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals,
+    dead_code,
+    clippy::upper_case_acronyms,
+    unnecessary_transmutes,
+    clippy::ptr_offset_with_cast
+)]
 mod ffi {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -94,7 +103,7 @@ pub(crate) mod input_hook {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     static HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
-static REENTRY_GUARD: AtomicBool = AtomicBool::new(false);
+    static REENTRY_GUARD: AtomicBool = AtomicBool::new(false);
 
     /// Install the periodic `R_PolledEvents` timer.
     /// Safe to call multiple times — subsequent calls are no-ops.
@@ -175,15 +184,6 @@ pub struct RRuntime {
     repl_initialized: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum RValue {
-    Null,
-    Bool(bool),
-    Int(i32),
-    Real(f64),
-    String(String),
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConsoleReadRoute {
     Native,
@@ -204,7 +204,6 @@ enum ShellPromptResult {
 /// per-frame protect stack, so it is immune to protect-stack ordering
 /// bugs when multiple `ProtectedSexp` objects are live across scope
 /// boundaries.
-#[allow(dead_code)]
 struct ProtectedSexp(ffi::SEXP);
 
 impl ProtectedSexp {
@@ -240,6 +239,7 @@ pub struct ConsoleSettings {
     pub completion_timeout: f64,
     pub completion_adding_spaces_around_equals: bool,
     pub auto_width: bool,
+    pub automagic: bool,
     pub tab_size: i32,
     pub auto_match: bool,
     pub auto_indentation: bool,
@@ -249,30 +249,30 @@ pub struct ConsoleSettings {
     pub highlight_matching_bracket: bool,
 }
 
-impl Default for ConsoleSettings {
-    fn default() -> Self {
-        let settings = Settings::default();
+impl From<Settings> for ConsoleSettings {
+    fn from(s: Settings) -> Self {
         Self {
-            prompt: settings.prompt,
-            browse_prompt: settings.browse_prompt,
-            shell_prompt: settings.shell_prompt,
-            insert_new_line: settings.insert_new_line,
-            indent_lines: settings.indent_lines,
-            stderr_format: settings.stderr_format,
-            show_vi_mode_prompt: settings.show_vi_mode_prompt,
-            vi_mode_prompt: settings.vi_mode_prompt,
-            editing_mode: settings.editing_mode,
-            completion_prefix_length: settings.completion_prefix_length,
-            completion_timeout: settings.completion_timeout,
-            completion_adding_spaces_around_equals: settings.completion_adding_spaces_around_equals,
-            auto_width: settings.auto_width,
-            tab_size: settings.tab_size,
-            auto_match: settings.auto_match,
-            auto_indentation: settings.auto_indentation,
-            auto_suggest: settings.auto_suggest,
-            escape_key_map: settings.escape_key_map.clone(),
-            ctrl_key_map: settings.ctrl_key_map.clone(),
-            highlight_matching_bracket: settings.highlight_matching_bracket,
+            prompt: s.prompt,
+            browse_prompt: s.browse_prompt,
+            shell_prompt: s.shell_prompt,
+            insert_new_line: s.insert_new_line,
+            indent_lines: s.indent_lines,
+            stderr_format: s.stderr_format,
+            show_vi_mode_prompt: s.show_vi_mode_prompt,
+            vi_mode_prompt: s.vi_mode_prompt,
+            editing_mode: s.editing_mode,
+            completion_prefix_length: s.completion_prefix_length,
+            completion_timeout: s.completion_timeout,
+            completion_adding_spaces_around_equals: s.completion_adding_spaces_around_equals,
+            auto_width: s.auto_width,
+            automagic: s.automagic,
+            tab_size: s.tab_size,
+            auto_match: s.auto_match,
+            auto_indentation: s.auto_indentation,
+            auto_suggest: s.auto_suggest,
+            escape_key_map: s.escape_key_map,
+            ctrl_key_map: s.ctrl_key_map,
+            highlight_matching_bracket: s.highlight_matching_bracket,
         }
     }
 }
@@ -292,7 +292,7 @@ struct ConsoleState {
 impl Default for ConsoleState {
     fn default() -> Self {
         Self {
-            settings: ConsoleSettings::default(),
+            settings: Settings::default().into(),
             terminal_cursor_at_beginning: true,
             startup_inputs: VecDeque::new(),
             pending_inputs: VecDeque::new(),
@@ -313,28 +313,7 @@ static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 pub fn install_console_settings(settings: &Settings) {
     let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
     let mut state = console.lock().unwrap();
-    state.settings = ConsoleSettings {
-        prompt: settings.prompt.clone(),
-        browse_prompt: settings.browse_prompt.clone(),
-        shell_prompt: settings.shell_prompt.clone(),
-        insert_new_line: settings.insert_new_line,
-        indent_lines: settings.indent_lines,
-        stderr_format: settings.stderr_format.clone(),
-        show_vi_mode_prompt: settings.show_vi_mode_prompt,
-        vi_mode_prompt: settings.vi_mode_prompt.clone(),
-        editing_mode: settings.editing_mode.clone(),
-        completion_prefix_length: settings.completion_prefix_length,
-        completion_timeout: settings.completion_timeout,
-        completion_adding_spaces_around_equals: settings.completion_adding_spaces_around_equals,
-        auto_width: settings.auto_width,
-        tab_size: settings.tab_size,
-        auto_match: settings.auto_match,
-        auto_indentation: settings.auto_indentation,
-        auto_suggest: settings.auto_suggest,
-        escape_key_map: settings.escape_key_map.clone(),
-        ctrl_key_map: settings.ctrl_key_map.clone(),
-        highlight_matching_bracket: settings.highlight_matching_bracket,
-    };
+    state.settings = ConsoleSettings::from(settings.clone());
     state.prompt_session = None;
 }
 
@@ -458,37 +437,11 @@ impl RRuntime {
         }
     }
 
-    pub fn eval_string(&mut self, code: &str) -> anyhow::Result<f64> {
-        unsafe {
-            let protected = eval_code(code)?;
-            let result = protected.get();
-            if ffi::Rf_isNumeric(result) != 0 && ffi::Rf_length(result) > 0 {
-                return Ok(ffi::Rf_asReal(result));
-            }
-        }
-        bail!("R expression did not return a number")
-    }
-
     pub fn source_file(&mut self, path: &Path) -> anyhow::Result<()> {
         self.eval_void(&format!(
             "base::source({}, local = base::new.env())",
             r_string(&path.display().to_string())
         ))
-    }
-
-    pub fn call_string(
-        &mut self,
-        package: Option<&str>,
-        function: &str,
-        args: &[&str],
-    ) -> anyhow::Result<String> {
-        self.eval_string_raw(&r_call_expr(package, function, args)?)
-    }
-
-    pub fn apply_settings(&mut self, settings: &Settings) -> anyhow::Result<()> {
-        let _ = settings;
-        self.set_option_bool("menu.graphics", false)?;
-        Ok(())
     }
 
     pub fn get_option_string(
@@ -511,11 +464,6 @@ impl RRuntime {
                 Ok(Some(CStr::from_ptr(text).to_string_lossy().into_owned()))
             }
         }
-    }
-
-    pub fn get_option(&mut self, name: &str) -> anyhow::Result<RValue> {
-        let code = format!("getOption({})", r_string(name));
-        unsafe { sexp_to_r_value(eval_code(&code)?.get()) }
     }
 
     pub fn get_option_bool(&mut self, name: &str, default: bool) -> anyhow::Result<bool> {
@@ -569,9 +517,7 @@ impl RRuntime {
 
     pub fn run_repl(&mut self) {
         self.init_repl();
-        unsafe {
-            while ffi::R_ReplDLLdo1() > 0 {}
-        }
+        unsafe { while ffi::R_ReplDLLdo1() > 0 {} }
         input_hook::remove();
     }
 
@@ -615,7 +561,15 @@ unsafe fn eval_code(code: &str) -> anyhow::Result<ProtectedSexp> {
         let mut result = ffi::R_NilValue;
         for i in 0..ffi::Rf_length(expr.get()) {
             let mut error = 0;
-            result = ffi::R_tryEval(ffi::Rf_elt(expr.get(), i), ffi::R_GlobalEnv, &mut error);
+            // R_ParseVector returns an EXPRSXP; its elements must be
+            // accessed with VECTOR_ELT, not Rf_elt (which walks a
+            // pairlist shape and returns garbage for EXPRSXPs, leading
+            // to a segfault inside R_tryEval).
+            result = ffi::R_tryEval(
+                ffi::orchard_VECTOR_ELT(expr.get(), i as ffi::R_xlen_t),
+                ffi::R_GlobalEnv,
+                &mut error,
+            );
             if error != 0 {
                 let message = r_error_message();
                 bail!("R evaluation failed: {code:?}: {message}");
@@ -625,57 +579,6 @@ unsafe fn eval_code(code: &str) -> anyhow::Result<ProtectedSexp> {
         // dropped at the end of this block, releasing them from protection.
         Ok(ProtectedSexp::new(result))
     }
-}
-
-unsafe fn sexp_to_r_value(value: ffi::SEXP) -> anyhow::Result<RValue> {
-    unsafe {
-        if ffi::Rf_isNull(value) != 0 || ffi::Rf_length(value) == 0 {
-            return Ok(RValue::Null);
-        }
-        if ffi::Rf_isLogical(value) != 0 {
-            return Ok(RValue::Bool(ffi::Rf_asLogical(value) != 0));
-        }
-        if ffi::Rf_isInteger(value) != 0 {
-            return Ok(RValue::Int(ffi::Rf_asInteger(value)));
-        }
-        if ffi::Rf_isReal(value) != 0 {
-            return Ok(RValue::Real(ffi::Rf_asReal(value)));
-        }
-        if ffi::Rf_isString(value) != 0 {
-            let text = ffi::R_CHAR(ffi::Rf_asChar(value));
-            return Ok(RValue::String(if text.is_null() {
-                String::new()
-            } else {
-                CStr::from_ptr(text).to_string_lossy().into_owned()
-            }));
-        }
-    }
-    bail!("unsupported R option value type")
-}
-
-fn r_call_expr(package: Option<&str>, function: &str, args: &[&str]) -> anyhow::Result<String> {
-    validate_r_name(function)?;
-    let function = if let Some(package) = package {
-        validate_r_name(package)?;
-        format!("{package}::{function}")
-    } else {
-        function.to_string()
-    };
-    Ok(format!("{function}({})", args.join(", ")))
-}
-
-fn validate_r_name(name: &str) -> anyhow::Result<()> {
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        bail!("R name cannot be empty");
-    };
-    if !(first.is_ascii_alphabetic() || first == '.') {
-        bail!("invalid R name: {name}");
-    }
-    if chars.any(|ch| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')) {
-        bail!("invalid R name: {name}");
-    }
-    Ok(())
 }
 
 unsafe fn r_error_message() -> String {
@@ -737,11 +640,6 @@ pub(crate) fn text_looks_complete(code: &str) -> bool {
     quote.is_none() && stack.is_empty()
 }
 
-fn r_string(value: &str) -> String {
-    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
-}
-
 extern "C" fn read_console(
     prompt: *const c_char,
     buf: *mut c_uchar,
@@ -751,7 +649,9 @@ extern "C" fn read_console(
     let raw_prompt = if prompt.is_null() {
         String::new()
     } else {
-        unsafe { CStr::from_ptr(prompt) }.to_string_lossy().into_owned()
+        unsafe { CStr::from_ptr(prompt) }
+            .to_string_lossy()
+            .into_owned()
     };
     if let Some(text) = {
         let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
@@ -773,7 +673,8 @@ extern "C" fn read_console(
         let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
         let mut state = console.lock().unwrap();
         if !state.terminal_cursor_at_beginning
-            || (state.settings.insert_new_line && is_r_or_browse_prompt(&raw_prompt, &state.settings))
+            || (state.settings.insert_new_line
+                && is_r_or_browse_prompt(&raw_prompt, &state.settings))
         {
             println!();
             state.terminal_cursor_at_beginning = true;
@@ -836,11 +737,38 @@ extern "C" fn read_console(
             return 0;
         }
         if mode.accept_inline()
-            && let Some(command) = shell_command(&text) {
-                shell::run_command(command);
-                append_history(&PromptMode::Shell, command);
-                continue;
+            && let Some(command) = shell_command(&text)
+        {
+            shell::run_command(command);
+            append_history(&PromptMode::Shell, command);
+            continue;
+        }
+        if let Some(magic_cmd) = magic::parse_magic(&text, settings.automagic) {
+            match magic::dispatch(&magic_cmd) {
+                Ok(MagicOutput::Eval(code)) => {
+                    append_history(&mode, &text);
+                    return queue_input(&code, &mode, buf, len);
+                }
+                Ok(MagicOutput::Text(msg)) => {
+                    print!("{msg}");
+                    io::stdout().flush().ok();
+                    continue;
+                }
+                Ok(MagicOutput::DisplayAndEval(code)) => {
+                    print!("{code}");
+                    io::stdout().flush().ok();
+                    append_history(&mode, &text);
+                    return queue_input(&code, &mode, buf, len);
+                }
+                Ok(MagicOutput::Silent) => {
+                    continue;
+                }
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
             }
+        }
         append_history(&mode, &text);
         return queue_input(&text, &mode, buf, len);
     }
@@ -914,23 +842,20 @@ fn read_console_interactive(
             let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
             let mut state = console.lock().unwrap();
             state.prompt_active = true;
-            state
-                .prompt_session
-                .take()
-                .unwrap_or_else(|| {
-                    let mode_arc = state.mode_arc.clone();
-                    let entries = state
-                        .history
-                        .as_ref()
-                        .map(|h| h.entries().to_vec())
-                        .unwrap_or_default();
-                    if entries.is_empty() {
-                        PromptSession::new(settings)
-                    } else {
-                        let backend = OrchardHistoryBackend::new(&entries, mode_arc.clone());
-                        PromptSession::with_arc_history(settings, backend, mode_arc)
-                    }
-                })
+            state.prompt_session.take().unwrap_or_else(|| {
+                let mode_arc = state.mode_arc.clone();
+                let entries = state
+                    .history
+                    .as_ref()
+                    .map(|h| h.entries().to_vec())
+                    .unwrap_or_default();
+                if entries.is_empty() {
+                    PromptSession::new(settings)
+                } else {
+                    let backend = OrchardHistoryBackend::new(&entries, mode_arc.clone());
+                    PromptSession::with_arc_history(settings, backend, mode_arc)
+                }
+            })
         };
         let result = session.read_line(
             shown_prompt.to_string(),
@@ -956,21 +881,53 @@ fn read_console_interactive(
             return 0;
         }
         if mode.accept_inline()
-            && let Some(command) = shell_command(&text) {
-                if command.is_empty() {
-                    let result = read_shell_prompt(&mut session, settings);
-                    store_prompt_session(session);
-                    match result {
-                        ShellPromptResult::ReturnToR => continue,
-                        ShellPromptResult::Eof => return 0,
-                    }
-                } else {
-                    shell::run_command(command);
-                    append_history(&PromptMode::Shell, command);
-                    store_prompt_session(session);
+            && let Some(command) = shell_command(&text)
+        {
+            if command.is_empty() {
+                let result = read_shell_prompt(&mut session, settings);
+                store_prompt_session(session);
+                match result {
+                    ShellPromptResult::ReturnToR => continue,
+                    ShellPromptResult::Eof => return 0,
                 }
-                continue;
+            } else {
+                shell::run_command(command);
+                append_history(&PromptMode::Shell, command);
+                store_prompt_session(session);
             }
+            continue;
+        }
+        if let Some(magic_cmd) = magic::parse_magic(&text, settings.automagic) {
+            match magic::dispatch(&magic_cmd) {
+                Ok(MagicOutput::Text(msg)) => {
+                    print!("{msg}");
+                    io::stdout().flush().ok();
+                    store_prompt_session(session);
+                    continue;
+                }
+                Ok(MagicOutput::Eval(code)) => {
+                    store_prompt_session(session);
+                    append_history(mode, &text);
+                    return queue_input(&code, mode, buf, len);
+                }
+                Ok(MagicOutput::DisplayAndEval(code)) => {
+                    print!("{code}");
+                    io::stdout().flush().ok();
+                    store_prompt_session(session);
+                    append_history(mode, &text);
+                    return queue_input(&code, mode, buf, len);
+                }
+                Ok(MagicOutput::Silent) => {
+                    store_prompt_session(session);
+                    continue;
+                }
+                Err(err) => {
+                    eprintln!("{err}");
+                    store_prompt_session(session);
+                    continue;
+                }
+            }
+        }
         store_prompt_session(session);
         append_history(mode, &text);
         return queue_input(&text, mode, buf, len);
@@ -987,7 +944,11 @@ fn store_prompt_session(session: PromptSession) {
 fn read_shell_prompt(session: &mut PromptSession, settings: &ConsoleSettings) -> ShellPromptResult {
     editing_hook::set_shell_mode(true);
     let result = loop {
-        match session.read_line(settings.shell_prompt.clone(), String::new(), PromptMode::Shell) {
+        match session.read_line(
+            settings.shell_prompt.clone(),
+            String::new(),
+            PromptMode::Shell,
+        ) {
             ReadResult::Line(line) => {
                 let command = line.trim_end_matches('\n');
                 if command.is_empty() {
@@ -1157,7 +1118,8 @@ fn write_bytes<W: Write>(buf: *const c_char, len: c_int, out: &mut W) -> anyhow:
         return Ok(());
     }
     let bytes = unsafe { slice::from_raw_parts(buf as *const u8, len as usize) };
-    out.write_all(bytes).context("failed to write R console output")?;
+    out.write_all(bytes)
+        .context("failed to write R console output")?;
     out.flush().ok();
     update_cursor(bytes);
     Ok(())
@@ -1197,11 +1159,7 @@ fn display_prompt(prompt: &str, settings: &ConsoleSettings) -> String {
         PromptMode::Unknown => prompt.to_string(),
     };
     if settings.show_vi_mode_prompt && settings.editing_mode == "vi" {
-        format!(
-            "{}{}",
-            settings.vi_mode_prompt.replace("{}", "I"),
-            base
-        )
+        format!("{}{}", settings.vi_mode_prompt.replace("{}", "I"), base)
     } else {
         base
     }
@@ -1254,7 +1212,7 @@ mod tests {
     use super::*;
 
     fn test_settings() -> ConsoleSettings {
-        ConsoleSettings::default()
+        Settings::default().into()
     }
 
     /// Serializes cursor-tracking tests so they don't race on the shared
@@ -1291,7 +1249,10 @@ mod tests {
     #[test]
     fn formats_browse_prompt() {
         let settings = test_settings();
-        assert_eq!(display_prompt("Browse[12]> ", &settings), "\x1b[33mBrowse[12]>\x1b[0m ");
+        assert_eq!(
+            display_prompt("Browse[12]> ", &settings),
+            "\x1b[33mBrowse[12]>\x1b[0m "
+        );
     }
 
     #[test]
@@ -1400,7 +1361,48 @@ mod tests {
 
     #[test]
     fn strip_ansi_preserves_newlines() {
-        assert_eq!(strip_ansi("\x1b[31mline1\nline2\x1b[0m\n"), "line1\nline2\n");
+        assert_eq!(
+            strip_ansi("\x1b[31mline1\nline2\x1b[0m\n"),
+            "line1\nline2\n"
+        );
+    }
+
+    // --- strip_ansi property tests ---
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn strip_ansi_idempotent(s in ".*") {
+            let once = strip_ansi(&s);
+            let twice = strip_ansi(&once);
+            prop_assert_eq!(once, twice);
+        }
+
+        #[test]
+        fn strip_ansi_output_never_contains_csi_letter(s in ".*") {
+            let stripped = strip_ansi(&s);
+            // The regex removes \x1b[[0-9;]*[a-zA-Z]. After stripping, no
+            // such sequence should remain.
+            let re = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+            prop_assert!(
+                !re.is_match(&stripped),
+                "stripped output still contains a CSI escape: {:?}",
+                stripped
+            );
+        }
+
+        #[test]
+        fn strip_ansi_plain_text_unchanged(s in "[a-zA-Z0-9 \n.,;:!?()]+") {
+            let stripped = strip_ansi(&s);
+            prop_assert_eq!(stripped, s);
+        }
+
+        #[test]
+        fn strip_ansi_preserves_length_of_plain(s in "[a-zA-Z0-9 ]+") {
+            let stripped = strip_ansi(&s);
+            prop_assert_eq!(stripped.len(), s.len());
+        }
     }
 
     // --- update_cursor ---
@@ -1499,6 +1501,43 @@ mod tests {
         // Clear on read
         assert!(interrupted_flag(true));
         assert!(!interrupted_flag(false));
+    }
+
+    #[test]
+    fn interrupted_flag_survives_non_clearing_reads() {
+        // Start from a known state: clear any prior interrupt.
+        let _ = interrupted_flag(true);
+        assert!(!interrupted_flag(false));
+
+        // Set once, read multiple times without clearing — should stay true.
+        set_interrupted_flag();
+        assert!(interrupted_flag(false));
+        assert!(interrupted_flag(false));
+        assert!(interrupted_flag(false));
+
+        // Setting again is idempotent — still true, no spurious false.
+        set_interrupted_flag();
+        assert!(interrupted_flag(false));
+
+        // Clear exactly once, then back to false.
+        assert!(interrupted_flag(true));
+        assert!(!interrupted_flag(false));
+    }
+
+    #[test]
+    fn interrupted_flag_concurrent_set_and_clear_is_consistent() {
+        // This test verifies the flag behaves as a simple atomic toggle under
+        // repeated set/clear cycles without relying on R or signal delivery.
+        for _ in 0..100 {
+            // Clear any stale state.
+            let _ = interrupted_flag(true);
+            assert!(!interrupted_flag(false), "flag should be clear after reset");
+
+            // Set and immediately clear.
+            set_interrupted_flag();
+            assert!(interrupted_flag(true), "flag should be true after set");
+            assert!(!interrupted_flag(false), "flag should be false after clear");
+        }
     }
 
     // --- browse_level ---
@@ -1625,7 +1664,7 @@ mod tests {
 
     #[test]
     fn console_input_long_ascii_splits_and_drains() {
-        let (head, tail) = split_console_input("abcdef\n", 3);
+        let (head, _tail) = split_console_input("abcdef\n", 3);
         assert_eq!(head, "abc");
     }
 }

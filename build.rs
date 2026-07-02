@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=R_HOME");
     println!("cargo:rerun-if-env-changed=R_BINARY");
     println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=shim.c");
 
     let r_home = r_home().unwrap_or_else(|| {
         panic!("R was not found. Install R or set R_HOME/R_BINARY.");
@@ -28,6 +29,7 @@ fn main() {
         .allowlist_function("Rf_.*")
         .allowlist_function("R_.*")
         .allowlist_function("SET_.*")
+        .allowlist_function("orchard_.*")
         .allowlist_var("R_.*")
         .allowlist_var("ptr_R_.*")
         .allowlist_type("SEXPREC")
@@ -37,9 +39,17 @@ fn main() {
         .generate()
         .expect("failed to generate R bindings");
 
+    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs");
     bindings
-        .write_to_file(PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs"))
+        .write_to_file(&out_path)
         .expect("failed to write R bindings");
+
+    // Compile the C shim that exposes R's inline/macro-only helpers
+    // (e.g. VECTOR_ELT) as plain functions for bindgen-generated FFI.
+    cc::Build::new()
+        .file("shim.c")
+        .include(&include_dir)
+        .compile("orchard_shim");
 }
 
 fn r_home() -> Option<PathBuf> {

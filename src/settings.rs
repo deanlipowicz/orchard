@@ -42,6 +42,7 @@ pub struct Settings {
     pub vi_mode_prompt: String,
     pub stderr_format: String,
     pub auto_width: bool,
+    pub automagic: bool,
     pub escape_key_map: Vec<CustomKeyBinding>,
     pub ctrl_key_map: Vec<CustomKeyBinding>,
 }
@@ -76,6 +77,7 @@ impl Default for Settings {
             vi_mode_prompt: VI_MODE_PROMPT.to_string(),
             stderr_format: STDERR_FORMAT.to_string(),
             auto_width: true,
+            automagic: false,
             escape_key_map: Vec::new(),
             ctrl_key_map: Vec::new(),
         }
@@ -182,6 +184,7 @@ impl Settings {
                 .get_option_string("orchard.stderr_format", Some(&d.stderr_format))?
                 .unwrap_or(d.stderr_format),
             auto_width: runtime.get_option_bool("orchard.auto_width", default_auto_width)?,
+            automagic: runtime.get_option_bool("orchard.automagic", d.automagic)?,
             escape_key_map: parse_key_bindings(&runtime.eval_string_raw(
                 "local({v <- getOption('orchard.escape_key_map'); \
                  if (is.null(v) || length(v) == 0) '' else \
@@ -218,4 +221,3 @@ mod tests {
         assert!(s.auto_width);
     }
 }
-

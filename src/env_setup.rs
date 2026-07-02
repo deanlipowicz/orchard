@@ -56,7 +56,8 @@ fn r_home_dirs(r: &RInstall) -> (String, String, String) {
 
     if let Some(paths) = fallback {
         let mut parts = paths.trim().split(':');
-        if let (Some(doc), Some(include), Some(share)) = (parts.next(), parts.next(), parts.next()) {
+        if let (Some(doc), Some(include), Some(share)) = (parts.next(), parts.next(), parts.next())
+        {
             return (doc.to_string(), include.to_string(), share.to_string());
         }
     }
@@ -145,14 +146,20 @@ mod tests {
 
         apply(&cli, &r).unwrap();
 
-        assert_eq!(env::var("ORCHARD_VERSION").unwrap(), env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            env::var("ORCHARD_VERSION").unwrap(),
+            env!("CARGO_PKG_VERSION")
+        );
         assert_eq!(
             env::var("ORCHARD_COMMAND_ARGS").unwrap(),
             "--quiet --no-environ --no-site-file --no-init-file --local-history"
         );
         assert_eq!(env::var_os("R_HOME"), Some(r.home.clone().into_os_string()));
         assert_eq!(env::var_os("R_BINARY"), Some("/custom/R".into()));
-        assert_eq!(env::var_os("R_DOC_DIR"), Some(r.home.join("doc").into_os_string()));
+        assert_eq!(
+            env::var_os("R_DOC_DIR"),
+            Some(r.home.join("doc").into_os_string())
+        );
         assert_eq!(
             env::var_os("R_INCLUDE_DIR"),
             Some(r.home.join("include").into_os_string())
@@ -185,4 +192,3 @@ mod tests {
         env::temp_dir().join(format!("orchard-{name}-{nanos}"))
     }
 }
-

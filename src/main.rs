@@ -1,5 +1,5 @@
 use anyhow::Context;
-use orchard::{cli, dyld, env_setup, history, profile, r_discovery, r_runtime, settings};
+use orchard::{cli, dyld, env_setup, history, profile, r_discovery, r_runtime, settings, util};
 use std::io::IsTerminal;
 
 fn main() -> anyhow::Result<()> {
@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(profile) = cli.profile.as_ref().filter(|path| path.exists()) {
             r_runtime::install_startup_inputs(vec![format!(
                 "base::source({}, local = base::globalenv())\n",
-                r_string(&profile.display().to_string())
+                util::r_string(&profile.display().to_string())
             )]);
         }
         settings::Settings::default()
@@ -56,9 +56,3 @@ fn main() -> anyhow::Result<()> {
     runtime.run_repl();
     Ok(())
 }
-
-fn r_string(value: &str) -> String {
-    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
-}
-

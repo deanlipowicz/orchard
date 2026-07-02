@@ -1,8 +1,9 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
 
 fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
-    let text = crate::r_runtime::eval_string_raw_global(code)
-        .map_err(|e| magic::MagicError { message: e.to_string() })?;
+    let text = crate::r_runtime::eval_string_raw_global(code).map_err(|e| magic::MagicError {
+        message: e.to_string(),
+    })?;
     Ok(Output::Text(text))
 }
 

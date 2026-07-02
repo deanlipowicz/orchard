@@ -1,10 +1,13 @@
+#[cfg(test)]
+use crate::settings::Settings;
 use crate::{
-    completion, editing, editing_hook,
+    completion, editing_hook,
     history::OrchardHistoryBackend,
     lexer::{self, TokenKind},
     r_runtime,
     r_runtime::{ConsoleSettings, PromptMode},
     settings::CustomKeyBinding,
+    util,
 };
 use nu_ansi_term::{Color, Style};
 
@@ -51,7 +54,7 @@ impl PromptSession {
                 move |event, buffer, cursor| editing_hook::handle(event, buffer, cursor, &settings)
             }))
             .with_buffer_editor(
-                Command::new(editing::select_editor(None)),
+                Command::new(util::select_editor(None)),
                 std::env::temp_dir().join("orchard-editor-tmp.R"),
             )
             .with_menu(ReedlineMenu::EngineCompleter(completion_menu));
@@ -89,7 +92,7 @@ impl PromptSession {
                 move |event, buffer, cursor| editing_hook::handle(event, buffer, cursor, &settings)
             }))
             .with_buffer_editor(
-                Command::new(editing::select_editor(None)),
+                Command::new(util::select_editor(None)),
                 std::env::temp_dir().join("orchard-editor-tmp.R"),
             )
             .with_menu(ReedlineMenu::EngineCompleter(completion_menu));
@@ -451,7 +454,7 @@ mod tests {
 
     #[test]
     fn completer_respects_prefix_length() {
-        let mut settings = ConsoleSettings::default();
+        let mut settings = ConsoleSettings::from(Settings::default());
         settings.completion_prefix_length = 3;
         let context = Arc::new(Mutex::new(PromptContext {
             settings,
@@ -465,7 +468,7 @@ mod tests {
     #[test]
     fn validator_marks_obvious_incomplete_r() {
         let context = Arc::new(Mutex::new(PromptContext {
-            settings: ConsoleSettings::default(),
+            settings: Settings::default().into(),
             mode: PromptMode::R,
             mode_arc: Arc::new(Mutex::new(PromptMode::R)),
         }));
@@ -482,8 +485,15 @@ mod tests {
 
     #[test]
     fn edit_mode_does_not_panic() {
-        // Verify edit_mode() returns a valid mode
-        let _mode = edit_mode(&ConsoleSettings::default());
+        let mode = edit_mode(&Settings::default().into());
+        let kind = mode.edit_mode();
+        assert!(
+            matches!(
+                kind,
+                reedline::PromptEditMode::Emacs | reedline::PromptEditMode::Vi(_)
+            ),
+            "expected Emacs or Vi edit mode"
+        );
     }
 
     #[test]
@@ -521,4 +531,3 @@ mod tests {
         }
     }
 }
-

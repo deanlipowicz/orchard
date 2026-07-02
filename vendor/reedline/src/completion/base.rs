@@ -33,10 +33,13 @@ impl Span {
 /// manually (by pressing Tab).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionIntent {
+    /// Triggered automatically while typing.
     Automatic,
+    /// Triggered manually by pressing Tab.
     Manual,
 }
 
+/// Defines how to convert text and a position into a list of potential completions.
 pub trait Completer: Send {
     /// the action that will take the line and position and convert it to a vector of completions, which include the
     /// span to replace and the contents of that replacement
