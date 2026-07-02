@@ -1223,6 +1223,192 @@ pub fn function_arg_completions(line: &str, cursor: usize) -> Option<(Vec<Comple
     Some((items, paren_start))
 }
 
+// ── Formula Completion ────────────────────────────────────────────────────
+
+/// Modeling functions whose first positional argument is a formula
+/// accepting a `data = ` argument for column name resolution.
+const MODEL_FNS: &[&str] = &["lm", "glm", "aov", "anova", "manova", "nls", "loess", "rlm"];
+
+/// Check if a function name is a known modeling function.
+fn is_modeling_fn(name: &str) -> bool {
+    // Handle namespaced names like "stats::lm"
+    let base = name.split("::").last().unwrap_or(name);
+    MODEL_FNS.contains(&base)
+}
+
+/// Detect if the cursor is inside a formula expression in a modeling
+/// function call (lm, glm, aov, etc.).
+///
+/// Returns `(function_name, span_start)` where `span_start` is the
+/// byte position of the current word boundary inside the call.
+pub fn formula_context(line: &str, cursor: usize) -> Option<(String, usize)> {
+    let text = &line[..cursor.min(line.len())];
+    let bytes = text.as_bytes();
+
+    // Walk backwards tracking paren depth to find the innermost `(`
+    let mut depth = 0i32;
+    let mut paren_pos = None;
+    for i in (0..bytes.len()).rev() {
+        match bytes[i] {
+            b')' => depth += 1,
+            b'(' => {
+                if depth == 0 {
+                    paren_pos = Some(i);
+                    break;
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    let paren_pos = paren_pos?;
+
+    // There must be a `~` between the `(` and the cursor
+    let inside_call = &text[paren_pos..];
+    if !inside_call.contains('~') {
+        return None;
+    }
+
+    // Extract function name before `(`
+    let before_paren = &text[..paren_pos];
+    let fn_start = before_paren
+        .rfind(|c: char| !is_name_char(c) && c != ':')
+        .map_or(0, |i| i + 1);
+    let fn_name = &before_paren[fn_start..];
+    if fn_name.is_empty() || !is_modeling_fn(fn_name) {
+        return None;
+    }
+    let first = fn_name.chars().next()?;
+    if !first.is_ascii_alphabetic() && first != '.' {
+        return None;
+    }
+
+    // Span starts at current word boundary inside the call
+    let span_start = text
+        .rfind(|c: char| !is_name_char(c) && c != '.' && c != '+' && c != '~' && c != ' ')
+        .map_or(0, |i| i + 1);
+
+    Some((fn_name.to_string(), span_start))
+}
+
+/// Extract the `data = <expr>` argument from a function call string.
+///
+/// Handles unquoted names (`data = mtcars`) and quoted strings
+/// (`data = "mtcars"`). Returns the expression text.
+fn extract_data_arg(call_text: &str) -> Option<String> {
+    // Use regex to find `data = <name>` or `data = "string"`
+    let re =
+        regex::Regex::new(r#"data\s*=\s*(?:([[:alpha:].][[:alnum:]._]*)|['\"]([^'\"]+)['\"])"#)
+            .ok()?;
+    let caps = re.captures(call_text)?;
+    // Group 1 = unquoted name, Group 2 = quoted string
+    caps.get(1)
+        .or_else(|| caps.get(2))
+        .map(|m| m.as_str().to_string())
+}
+
+/// Resolve column names from a data expression for formula completion.
+///
+/// Checks the static dataset TSV first, then falls through to R FFI.
+/// Results are cached in the shared schema cache.
+fn resolve_formula_columns(data_expr: &str) -> Vec<String> {
+    let cache_key = format!("formula:{}", data_expr);
+
+    // Check shared schema cache
+    {
+        let cache = schema_cache().lock().unwrap();
+        if let Some(entry) = cache.get(&cache_key)
+            && entry.fetched_at.elapsed() < SCHEMA_CACHE_TTL
+        {
+            return entry.names.clone();
+        }
+    }
+
+    // Fast path: static dataset TSV
+    if let Some(cols) = static_dataset_columns(data_expr) {
+        let mut cache = schema_cache().lock().unwrap();
+        cache.insert(
+            cache_key,
+            SchemaEntry {
+                names: cols.clone(),
+                fetched_at: Instant::now(),
+            },
+        );
+        return cols;
+    }
+
+    // Fall through to R FFI
+    let r_code = format!(
+        concat!(
+            "local({{ obj <- tryCatch(get({}, envir = .GlobalEnv), error = function(e) NULL);",
+            " if (is.null(obj)) return('');",
+            " nms <- tryCatch(names(obj), error = function(e) NULL);",
+            " if (is.null(nms) || length(nms) == 0) return('');",
+            " paste(nms, collapse = '\\n') }})"
+        ),
+        crate::util::r_string(data_expr)
+    );
+
+    let result = crate::r_runtime::with_suppressed_stderr(|| {
+        crate::r_runtime::eval_string_raw_global(&r_code)
+    })
+    .unwrap_or_default();
+
+    let names: Vec<String> = result
+        .lines()
+        .map(String::from)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Cache and return
+    let mut cache = schema_cache().lock().unwrap();
+    cache.insert(
+        cache_key,
+        SchemaEntry {
+            names: names.clone(),
+            fetched_at: Instant::now(),
+        },
+    );
+    names
+}
+
+/// Generate column-name completions for a formula context.
+///
+/// Detects cursor inside `lm(mpg ~ , data = mtcars)`, resolves the
+/// data source, and returns column names ranked by `rank_completions()`.
+pub fn formula_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, usize)> {
+    let (_fn_name, span_start) = formula_context(line, cursor)?;
+
+    let text = &line[..cursor.min(line.len())];
+
+    // Find the function call text to extract `data =`
+    // Walk backwards to find the function name
+    let call_start = text
+        .rfind('(')
+        .and_then(|i| {
+            let before = &text[..i];
+            let fn_s = before.rfind(|c: char| !is_name_char(c) && c != ':')?;
+            Some(fn_s + 1)
+        })
+        .unwrap_or(0);
+    let call_text = &text[call_start..];
+
+    let data_expr = extract_data_arg(call_text)?;
+    let names = resolve_formula_columns(&data_expr);
+
+    if names.is_empty() {
+        return None;
+    }
+
+    let prefix = &text[span_start..cursor.min(line.len())];
+    let items = rank_completions(&names, prefix);
+
+    if items.is_empty() {
+        return None;
+    }
+    Some((items, span_start))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1638,5 +1824,71 @@ mod tests {
     #[test]
     fn levenshtein_completely_different() {
         assert_eq!(levenshtein_distance("abc", "xyz"), 3);
+    }
+
+    // ── Formula completion tests ──────────────────────────────────────────
+
+    #[test]
+    fn detects_formula_in_lm() {
+        // Cursor after the "+ " inside a formula
+        let (name, _) = formula_context("lm(mpg ~ cyl + , data = mtcars)", 22).unwrap();
+        assert_eq!(name, "lm");
+    }
+
+    #[test]
+    fn detects_formula_after_tilde() {
+        // Cursor at the 'd' of data= — inside the call, after the tilde.
+        // "lm(y ~ , data = df)"
+        //           ^ cursor=9
+        let (name, _) = formula_context("lm(y ~ , data = df)", 9).unwrap();
+        assert_eq!(name, "lm");
+    }
+
+    #[test]
+    fn rejects_non_modeling_fn() {
+        assert!(formula_context("mean(x, na.rm = TRUE)", 22).is_none());
+    }
+
+    #[test]
+    fn rejects_without_tilde() {
+        assert!(formula_context("lm(mpg, data = mtcars)", 23).is_none());
+    }
+
+    #[test]
+    fn rejects_without_parens() {
+        assert!(formula_context("lm ", 3).is_none());
+    }
+
+    #[test]
+    fn extracts_data_arg_unquoted() {
+        let result = extract_data_arg("lm(mpg ~ cyl, data = mtcars)");
+        assert_eq!(result, Some("mtcars".to_string()));
+    }
+
+    #[test]
+    fn extracts_data_arg_quoted() {
+        let result = extract_data_arg("lm(mpg ~ ., data = \"mtcars\")");
+        assert_eq!(result, Some("mtcars".to_string()));
+    }
+
+    #[test]
+    fn extracts_data_arg_single_quoted() {
+        let result = extract_data_arg("lm(mpg ~ ., data = 'mtcars')");
+        assert_eq!(result, Some("mtcars".to_string()));
+    }
+
+    #[test]
+    fn extract_data_arg_fails_when_missing() {
+        assert!(extract_data_arg("lm(mpg ~ wt)").is_none());
+    }
+
+    #[test]
+    fn is_modeling_fn_recognizes_known_fns() {
+        assert!(is_modeling_fn("lm"));
+        assert!(is_modeling_fn("glm"));
+        assert!(is_modeling_fn("aov"));
+        assert!(is_modeling_fn("stats::lm"));
+        assert!(!is_modeling_fn("mean"));
+        assert!(!is_modeling_fn("print"));
     }
 }

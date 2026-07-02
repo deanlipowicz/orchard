@@ -312,6 +312,12 @@ impl Completer for OrchardCompleter {
             return suggestions(ns_items, span);
         }
 
+        // Formula column completion (lm(mpg ~ , data = mtcars))
+        if let Some((f_items, f_span)) = completion::formula_completions(line, pos) {
+            let span = Span::new(f_span, pos.min(line.len()));
+            return suggestions(f_items, span);
+        }
+
         // Function argument completion — formals() via R
         if let Some((arg_items, arg_span)) = completion::function_arg_completions(line, pos) {
             let span = Span::new(arg_span, pos.min(line.len()));
