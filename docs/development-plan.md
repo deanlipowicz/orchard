@@ -4,7 +4,7 @@
 commands, an intelligent in-terminal data inspector, and schema-aware autocomplete.
 Replaces upstream Python radian on Linux (macOS pending acceptance).
 
-**Current state:** 47 registered magic handlers | 319 tests (312 lib + 7 magic framework) | Linux only
+**Current state:** 47 registered magic handlers | 363 tests (356 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -16,7 +16,7 @@ reedline/readline → r_runtime::read_console_interactive
   ├── ! inline shell execution
   ├── ?/?? object introspection
   ├── % magic dispatch (47 handlers)
-  ├── + tab: Schema-aware autocomplete (9 backends) + variable selector ✅
+  ├── + tab: Schema-aware autocomplete (14 backends) + variable selector ✅
   └── R evaluation (via R C API)
 
 r_runtime → magic_registry → MagicHandler::run() → Output
@@ -36,7 +36,7 @@ Data Inspector (v0.3):
 - `src/history.rs` — history + snapshot
 - `src/prompt.rs` — reedline session, completer, highlighter
 - `src/shell.rs` — shell commands, env lock
-- `src/completion.rs` — R/package/LaTeX/shell completion, schema-aware ($/@/[[/%>%), magic arg, function arg, fuzzy (SkimMatcherV2), frequency boost, spellcheck, static TSV lookup (datasets + packages)
+- `src/completion.rs` — R/package/LaTeX/shell completion, schema-aware ($/@/[[/%>%), magic arg, function arg, formula ~, fuzzy (SkimMatcherV2), frequency boost, spellcheck, static TSV lookup (datasets + packages)
 - `src/frequency.rs` — completion frequency tracker with JSON persistence
 - `src/data/dataset_schemas.tsv` — 36 common dataset schemas for zero-FFI column completion
 - `src/data/package_symbols.tsv` — 10 packages with function names + argument signatures
@@ -273,7 +273,7 @@ Reserved keys (cannot be remapped): Ctrl-M, Ctrl-I, Ctrl-H, Ctrl-D, Ctrl-C.
 | Package symbol TSV | `pkg::fun` context | Static function names + arg signatures from TSV | High | ✅ Done |
 | Frequency ranking | All completion backends | Learned from usage history, persisted to JSON | Medium | ✅ Done |
 | `data.table` | Regex: `\w+\[,` | R `names(data.table)` | Low | Future |
-| Formula `~` | Within `lm(`, `aov(`, etc. | R `names(data)` from formula | Medium | Future |
+| Formula `~` | Within `lm(`, `aov(`, etc. | R `names(data)` from `data =` arg, static TSV fast path | Medium | ✅ Done |
 | `DBI::dbGetQuery()` | SQL context detection | DBI connection schema | Future | Future |
 
 ### Variable Selector (Implemented)
@@ -503,6 +503,7 @@ Low effort, high benefit.
 | Function arg completion | R `formals()` with default value display | ✅ Done |
 | R6 / refClass method completion | R6: `ls(envir=obj)`, refClass: `names()` | ✅ Done |
 | Spellcheck | Levenshtein-based "did you mean?" suggestions | ✅ Done |
+| Formula ~ completion | Column names from `data =` arg in lm()/glm()/aov() | ✅ Done |
 | `?` modal help | Detect `?` at line start, route to pdoc/psource | 1h |
 | `%methods` | S3/S4 dispatch introspection | 0.5h |
 | `%psearch` | Pattern-based object search | 0.5h |
@@ -728,7 +729,7 @@ These upstream Python radian features are intentionally deferred or excluded:
 
 ```bash
 cargo check                             # 0 errors, 0 warnings
-cargo test --lib --no-fail-fast         # 312 passed
+cargo test --lib --no-fail-fast         # 356 passed
 cargo test --test magic_framework       # 7 passed
 cargo clippy                            # 0 warnings
 ```

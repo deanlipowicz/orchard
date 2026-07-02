@@ -11,6 +11,39 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-02 — Formula ~ Completion for Modeling Functions
+
+**Goal:** Complete column names from the `data =` argument when the user types
+inside an R formula (e.g. `lm(mpg ~ cyl + , data = mtcars)` should suggest
+columns of `mtcars`).
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/completion.rs` | Added `MODEL_FNS` constant (lm, glm, aov, anova, manova, nls, loess, rlm). Added `is_modeling_fn()`, `formula_context()` (paren-depth backtracer + `~` detection), `extract_data_arg()` (regex-based `data =` extraction), `resolve_formula_columns()` (static TSV fast path → R FFI fallback), `formula_completions()` (main entry point using `rank_completions()`). |
+| `src/prompt.rs` | Wired `formula_completions()` check between namespace and function arg completions. |
+
+**11 new tests:** context detection (5), data arg extraction (4), modeling fn check (2).
+
+**Completion backends: 14 total** — the 14th backend is formula ~ completion.
+
+**Test count:** 356 lib tests (up from 312), 7 magic framework. Total: 363 tests.
+
+**Verification:**
+```
+cargo test --lib        # 356 passed, 0 failed
+cargo clippy            # 0 warnings
+```
+
+**Plan:** `docs/superpowers/plans/2026-07-02-formula-completion.md`
+
+**Commit:**
+```
+ccab47a feat: formula ~ completion for modeling functions (lm, glm, aov, etc.)
+
+---
+
 ## 2026-07-02 — Frequency-Aware Scored Completion + Static TSV Fast Paths
 
 **Goal:** Replace the naive boolean `fuzzy_match` filter with a proper scored ranking
