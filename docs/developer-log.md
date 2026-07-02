@@ -104,7 +104,7 @@ cargo test --lib       # 382 passed, 0 failed, 1 ignored
 cargo test --test magic_framework  # 7 passed
 ```
 
-**Plan:** `docs/superpowers/plans/2026-07-02-eda-handlers.md`
+**Plan:** `docs/superpowers/plans/2026-07-02-eda-handlers.md` (consolidated below)
 **Spec:** `docs/superpowers/specs/2026-07-02-eda-handlers-design.md`
 
 **Commits:**
@@ -112,6 +112,13 @@ cargo test --test magic_framework  # 7 passed
 2529141 feat: add 8 EDA magic handlers (%summary, %glimpse, %describe, %missing, %corr, %freq, %compare, %sessioninfo)
 4c4bfd4 docs: add EDA handlers design spec and implementation plan
 ```
+
+**Architecture notes (from consolidated plan):**
+- All 8 handlers follow the existing thin-wrapper pattern in `inspect.rs`/`timing.rs`.
+- Two shared helpers: `eval_r_captured()` wraps code in `capture.output()`, `eval_with_pkg_check()` uses `requireNamespace()` before evaluation for optional-package handlers.
+- Base-R handlers (`%summary`, `%corr`) use `eval_r_captured()`; optional-package handlers (`%glimpse`, `%describe`, `%missing`, `%freq`, `%compare`, `%sessioninfo`) use `eval_with_pkg_check()`.
+- All handlers return `Output::Text`; registered as P9 priority in `register_all()`.
+- Registered alongside parse+dispatch tests covering registry presence, empty-args validation, recognition of all 8 names, and `Output::Text` dispatch path.
 
 ---
 
