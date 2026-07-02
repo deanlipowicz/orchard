@@ -1,5 +1,9 @@
 # orchard — Modern R REPL with IPython-style Magic Commands
 
+[![CI](https://github.com/deanlipowicz/orchard/actions/workflows/ci.yml/badge.svg)](https://github.com/deanlipowicz/orchard/actions/workflows/ci.yml)
+
+**Repository:** [github.com/deanlipowicz/orchard](https://github.com/deanlipowicz/orchard)
+
 **What this is:** An enhanced terminal REPL for the R statistical programming
 language, written in Rust. Replaces the upstream Python radian REPL with a
 faster, self-contained binary. Currently 49 magic handlers and 238 tests.

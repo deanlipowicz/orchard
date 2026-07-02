@@ -5,8 +5,8 @@ edition = "2024"
 description = "Modern R REPL with IPython-style magic commands, written in Rust"
 license = "MIT OR Apache-2.0"
 authors = ["orchard contributors"]
-repository = "https://github.com/orchard/orchard"
-homepage = "https://github.com/orchard/orchard"
+repository = "https://github.com/deanlipowicz/orchard"
+homepage = "https://github.com/deanlipowicz/orchard"
 keywords = ["R", "REPL", "terminal", "statistical-computing"]
 categories = ["command-line-utilities", "development-tools"]
 
