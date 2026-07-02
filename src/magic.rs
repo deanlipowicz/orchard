@@ -165,6 +165,20 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::debug::Xmode));
     registry.register(Arc::new(crate::magics::config::Automagic));
     registry.register(Arc::new(crate::magics::history_magics::Save));
+
+    // P11 — History Replay (v0.4)
+    registry.register(Arc::new(crate::magics::history_magics::Rerun));
+    registry.register(Arc::new(crate::magics::history_magics::Recall));
+
+    // P12 — Workspace management (v0.4)
+    registry.register(Arc::new(crate::magics::workspace::Store));
+    registry.register(Arc::new(crate::magics::workspace::Reset));
+    registry.register(Arc::new(crate::magics::workspace::Xdel));
+
+    // P13 — Session logging (v0.4)
+    registry.register(Arc::new(crate::magics::logging::LogStart));
+    registry.register(Arc::new(crate::magics::logging::LogStop));
+    registry.register(Arc::new(crate::magics::logging::LogStateCmd));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

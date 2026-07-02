@@ -255,6 +255,96 @@ impl magic::MagicHandler for Save {
     }
 }
 
+// ---------------------------------------------------------------------------
+// %rerun — Re-run a previous command by history number or pattern
+// ---------------------------------------------------------------------------
+
+pub struct Rerun;
+
+impl magic::MagicHandler for Rerun {
+    fn name(&self) -> &'static str {
+        "rerun"
+    }
+    fn description(&self) -> &'static str {
+        "Re-run a previous command by history number or pattern"
+    }
+    fn run(&self, line: &magic::MagicLine) -> Result<magic::Output, magic::MagicError> {
+        let args = line.args.trim();
+        let entries = get_history_snapshot();
+        if entries.is_empty() {
+            return Ok(magic::Output::Text("(history empty)\n".into()));
+        }
+
+        let matched: Vec<&Entry> = if args.is_empty() {
+            // Default: re-run the most recent entry
+            entries.last().into_iter().collect()
+        } else if let Some(resolved) = resolve_range(args, &entries) {
+            resolved.iter().map(|e| {
+                entries.iter().find(|h| h.text == e.text).unwrap()
+            }).collect()
+        } else {
+            // Pattern search: find most recent match
+            entries.iter().rev().filter(|e| e.text.contains(args)).take(1).collect()
+        };
+
+        if matched.is_empty() {
+            return Err(magic::MagicError {
+                message: format!("No history entry matching '{args}'"),
+            });
+        }
+
+        let entry = matched[0];
+        let output = format!("Re-running: {}\n", entry.text);
+        crate::r_runtime::eval_string_raw_global(&entry.text).map_err(|e| magic::MagicError {
+            message: e.to_string(),
+        })?;
+        Ok(magic::Output::Text(output))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %recall — Recall a previous command for editing
+// ---------------------------------------------------------------------------
+
+pub struct Recall;
+
+impl magic::MagicHandler for Recall {
+    fn name(&self) -> &'static str {
+        "recall"
+    }
+    fn description(&self) -> &'static str {
+        "Recall a previous command by number or pattern for editing"
+    }
+    fn run(&self, line: &magic::MagicLine) -> Result<magic::Output, magic::MagicError> {
+        let args = line.args.trim();
+        let entries = get_history_snapshot();
+        if entries.is_empty() {
+            return Ok(magic::Output::Text("(history empty)\n".into()));
+        }
+
+        let matched: Vec<&Entry> = if args.is_empty() {
+            entries.last().into_iter().collect()
+        } else if let Some(resolved) = resolve_range(args, &entries) {
+            resolved.iter().map(|e| {
+                entries.iter().find(|h| h.text == e.text).unwrap()
+            }).collect()
+        } else {
+            entries.iter().rev().filter(|e| e.text.contains(args)).take(1).collect()
+        };
+
+        if matched.is_empty() {
+            return Err(magic::MagicError {
+                message: format!("No history entry matching '{args}'"),
+            });
+        }
+
+        Ok(magic::Output::Text(format!(
+            "Recalled: {}\n",
+            matched[0].text
+        )))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
