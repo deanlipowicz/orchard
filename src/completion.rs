@@ -1,8 +1,10 @@
 use crate::lexer::cursor_in_string;
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -273,6 +275,332 @@ fn remove_nested_parens(text: &str) -> String {
     out
 }
 
+// ── Schema-Aware Autocomplete ──────────────────────────────────────────────
+
+/// TTL for cached schema lookups (column names of R objects).
+const SCHEMA_CACHE_TTL: Duration = Duration::from_secs(5);
+
+struct SchemaEntry {
+    names: Vec<String>,
+    fetched_at: Instant,
+}
+
+fn schema_cache() -> &'static Mutex<HashMap<String, SchemaEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, SchemaEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn is_name_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '.' || c == '_'
+}
+
+/// Detect a `$` or `@` accessor context before the cursor.
+///
+/// Returns `(object_name, operator, span_start)` where `span_start` is the
+/// byte position right after the operator where column-name completion
+/// should start replacing.
+pub fn extract_dollar_at_context(line: &str, cursor: usize) -> Option<(String, char, usize)> {
+    let text = &line[..cursor.min(line.len())];
+
+    // Find the last $ or @ in the text before cursor
+    let op_pos = text.rfind(['$', '@'])?;
+    let op = text.as_bytes()[op_pos] as char;
+
+    // The operator must be preceded by a valid name character
+    if op_pos == 0 || !is_name_char(text.as_bytes()[op_pos - 1] as char) {
+        return None;
+    }
+
+    // Find the start of the object name before the operator
+    let before_op = &text[..op_pos];
+    let obj_start = before_op
+        .rfind(|c: char| !is_name_char(c))
+        .map_or(0, |i| i + 1);
+
+    let obj_name = &before_op[obj_start..];
+    if obj_name.is_empty() {
+        return None;
+    }
+
+    // R identifiers must start with a letter or dot, and contain only
+    // alphanumerics, dots, and underscores.
+    let first = obj_name.chars().next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '.' {
+        return None;
+    }
+
+    Some((obj_name.to_string(), op, op_pos + 1))
+}
+
+/// Detect a `[[` bracket completion context.
+///
+/// Returns `(object_name, span_start)` where `span_start` is the byte
+/// position right after `[[`.
+pub fn extract_bracket_context(line: &str, cursor: usize) -> Option<(String, usize)> {
+    let text = &line[..cursor.min(line.len())];
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+
+    if len < 2 {
+        return None;
+    }
+
+    // Find effective end (exclude trailing whitespace)
+    let effective = len
+        - bytes
+            .iter()
+            .rev()
+            .take_while(|b| b.is_ascii_whitespace())
+            .count();
+    if effective < 2 {
+        return None;
+    }
+
+    if bytes[effective - 1] == b'[' && bytes[effective - 2] == b'[' {
+        let obj_end = effective - 2;
+        let before = &text[..obj_end];
+        let obj_start = before
+            .rfind(|c: char| !is_name_char(c))
+            .map_or(0, |i| i + 1);
+        let obj_name = &before[obj_start..];
+
+        // R identifiers must start with a letter or dot
+        if !obj_name.is_empty() {
+            let first = obj_name.chars().next().unwrap();
+            if first.is_ascii_alphabetic() || first == '.' {
+                return Some((obj_name.to_string(), effective));
+            }
+        }
+    }
+
+    None
+}
+
+/// Resolve column or slot names for an R object by calling R.
+fn resolve_schema(obj_name: &str, op: char) -> Vec<String> {
+    let cache_key = format!("{}:{}", obj_name, op);
+
+    // Check cache first
+    {
+        let cache = schema_cache().lock().unwrap();
+        if let Some(entry) = cache.get(&cache_key)
+            && entry.fetched_at.elapsed() < SCHEMA_CACHE_TTL
+        {
+            return entry.names.clone();
+        }
+    }
+
+    let r_code = if op == '@' {
+        format!(
+            concat!(
+                "local({{ obj <- tryCatch(get({}, envir = .GlobalEnv), error = function(e) NULL);",
+                " if (is.null(obj)) return('');",
+                " nms <- tryCatch(methods::slotNames(obj), error = function(e) NULL);",
+                " if (is.null(nms) || length(nms) == 0) return('');",
+                " paste(nms, collapse = '\\n') }})"
+            ),
+            crate::util::r_string(obj_name)
+        )
+    } else {
+        format!(
+            concat!(
+                "local({{ obj <- tryCatch(get({}, envir = .GlobalEnv), error = function(e) NULL);",
+                " if (is.null(obj)) return('');",
+                " nms <- tryCatch(names(obj), error = function(e) NULL);",
+                " if (is.null(nms) || length(nms) == 0) return('');",
+                " paste(nms, collapse = '\\n') }})"
+            ),
+            crate::util::r_string(obj_name)
+        )
+    };
+
+    let result = crate::r_runtime::with_suppressed_stderr(|| {
+        crate::r_runtime::eval_string_raw_global(&r_code)
+    })
+    .unwrap_or_default();
+
+    let names: Vec<String> = result
+        .lines()
+        .map(String::from)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Update cache
+    let mut cache = schema_cache().lock().unwrap();
+    cache.insert(
+        cache_key,
+        SchemaEntry {
+            names: names.clone(),
+            fetched_at: Instant::now(),
+        },
+    );
+
+    names
+}
+
+/// Generate completions for schema-aware contexts (`$`, `@`, `[[`).
+///
+/// Returns `(completions, span_start)` when a schema context is detected
+/// and completions are available, or `None` otherwise.
+pub fn schema_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, usize)> {
+    // Try $/@ first
+    if let Some((obj_name, op, span_start)) = extract_dollar_at_context(line, cursor) {
+        let prefix = &line[span_start..cursor.min(line.len())];
+        let names = resolve_schema(&obj_name, op);
+        let items: Vec<Completion> = names
+            .iter()
+            .filter(|n| n.starts_with(prefix))
+            .map(|n| Completion {
+                replacement: n.clone(),
+                display: n.clone(),
+            })
+            .collect();
+        if !items.is_empty() {
+            return Some((items, span_start));
+        }
+    }
+
+    // Try [[
+    if let Some((obj_name, span_start)) = extract_bracket_context(line, cursor) {
+        let prefix = &line[span_start..cursor.min(line.len())];
+        let names = resolve_schema(&obj_name, '$'); // $ → names() for [[ too
+        let items: Vec<Completion> = names
+            .iter()
+            .filter(|n| n.starts_with(prefix))
+            .map(|n| Completion {
+                replacement: n.clone(),
+                display: n.clone(),
+            })
+            .collect();
+        if !items.is_empty() {
+            return Some((items, span_start));
+        }
+    }
+
+    None
+}
+
+/// Detect a `%>%` pipe completion context.
+///
+/// Returns the R expression before the last `%>%` when the cursor is in
+/// a pipe chain position.
+pub fn extract_pipe_context(line: &str, cursor: usize) -> Option<String> {
+    let text = &line[..cursor.min(line.len())];
+    let text = text.trim_end();
+
+    let pipe_pos = text.rfind("%>%")?;
+    let before_pipe = &text[..pipe_pos].trim_end();
+    if before_pipe.is_empty() {
+        return None;
+    }
+
+    Some(before_pipe.to_string())
+}
+
+/// Generate completions for a pipe chain (`%>%`) context.
+///
+/// Evaluates the pipe expression before the last `%>%` and returns column
+/// names as completions. Returns `(completions, span_start)` when a pipe
+/// context is detected, or `None` otherwise.
+pub fn pipe_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, usize)> {
+    let expr = extract_pipe_context(line, cursor)?;
+
+    let r_code = format!(
+        concat!(
+            "local({{ result <- tryCatch(eval(parse(text = {}), envir = .GlobalEnv),",
+            " error = function(e) NULL);",
+            " if (is.null(result)) return('');",
+            " nms <- tryCatch(names(result), error = function(e) NULL);",
+            " if (is.null(nms) || length(nms) == 0) return('');",
+            " paste(nms, collapse = '\\n') }})"
+        ),
+        crate::util::r_string(&expr)
+    );
+
+    let result = crate::r_runtime::with_suppressed_stderr(|| {
+        crate::r_runtime::eval_string_raw_global(&r_code)
+    })
+    .unwrap_or_default();
+
+    let names: Vec<String> = result
+        .lines()
+        .map(String::from)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+
+    // Compute span start: right after the last `%>%`, skipping whitespace
+    let text = &line[..cursor.min(line.len())];
+    let pipe_end = text
+        .rfind("%>%")
+        .map(|p| p + 3)
+        .unwrap_or(cursor.min(line.len()));
+
+    let after_pipe = &text[pipe_end..cursor.min(line.len())];
+    let prefix = after_pipe.trim_start();
+    let span_start = pipe_end + (after_pipe.len() - prefix.len());
+
+    let items: Vec<Completion> = names
+        .iter()
+        .filter(|n| n.starts_with(prefix))
+        .map(|n| Completion {
+            replacement: n.clone(),
+            display: n.clone(),
+        })
+        .collect();
+
+    if items.is_empty() {
+        return None;
+    }
+
+    Some((items, span_start))
+}
+
+/// Generate variable-selector completions from the global R environment.
+///
+/// Returns all variables with their class and size metadata, filtered by
+/// the optional prefix.
+pub fn variable_selector_completions(prefix: &str) -> Vec<Completion> {
+    let r_code = r#"
+        local({
+            vars <- ls(envir = .GlobalEnv)
+            if (length(vars) == 0) return("")
+            lines <- vapply(vars, function(v) {
+                obj <- tryCatch(get(v, envir = .GlobalEnv), error = function(e) NULL)
+                if (is.null(obj)) return(paste(v, "NULL", "0 B", sep = "\t"))
+                cls <- paste(class(obj), collapse = "/")
+                sz <- tryCatch(format(utils::object.size(obj), units = "auto"), error = function(e) "?")
+                paste(v, cls, sz, sep = "\t")
+            }, character(1))
+            paste(lines, collapse = "\n")
+        })
+    "#;
+
+    let result = crate::r_runtime::with_suppressed_stderr(|| {
+        crate::r_runtime::eval_string_raw_global(r_code)
+    })
+    .unwrap_or_default();
+
+    result
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let name = parts.next()?;
+            if !name.starts_with(prefix) {
+                return None;
+            }
+            let cls = parts.next().unwrap_or("");
+            let sz = parts.next().unwrap_or("");
+            Some(Completion {
+                replacement: name.to_string(),
+                display: format!("{}  ({}, {})", name, cls, sz),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +698,97 @@ mod tests {
                 display: "alpha\\ dir/".into()
             }]
         );
+    }
+
+    // ── Schema-aware context detection tests ──────────────────────────────
+
+    #[test]
+    fn detects_dollar_context_simple() {
+        let (name, op, span) = extract_dollar_at_context("df$", 3).unwrap();
+        assert_eq!(name, "df");
+        assert_eq!(op, '$');
+        assert_eq!(span, 3);
+    }
+
+    #[test]
+    fn detects_dollar_context_with_partial_column() {
+        let (name, op, span) = extract_dollar_at_context("df$col", 6).unwrap();
+        assert_eq!(name, "df");
+        assert_eq!(op, '$');
+        assert_eq!(span, 3);
+    }
+
+    #[test]
+    fn detects_dollar_context_with_dotted_name() {
+        let (name, op, span) = extract_dollar_at_context("my.data$", 8).unwrap();
+        assert_eq!(name, "my.data");
+        assert_eq!(op, '$');
+        assert_eq!(span, 8);
+    }
+
+    #[test]
+    fn detects_at_context() {
+        let (name, op, span) = extract_dollar_at_context("myobj@", 6).unwrap();
+        assert_eq!(name, "myobj");
+        assert_eq!(op, '@');
+        assert_eq!(span, 6);
+    }
+
+    #[test]
+    fn rejects_dollar_without_preceding_name() {
+        assert!(extract_dollar_at_context("$", 1).is_none());
+        assert!(extract_dollar_at_context("5$", 2).is_none());
+    }
+
+    #[test]
+    fn detects_bracket_context() {
+        let (name, span) = extract_bracket_context("df[[", 4).unwrap();
+        assert_eq!(name, "df");
+        assert_eq!(span, 4);
+    }
+
+    #[test]
+    fn rejects_single_bracket() {
+        assert!(extract_bracket_context("df[", 3).is_none());
+    }
+
+    #[test]
+    fn detects_pipe_context_simple() {
+        let expr = extract_pipe_context("df %>% ", 7).unwrap();
+        assert_eq!(expr, "df");
+    }
+
+    #[test]
+    fn detects_pipe_context_with_filter() {
+        let expr = extract_pipe_context("df %>% filter(x > 1) %>% ", 26).unwrap();
+        assert_eq!(expr, "df %>% filter(x > 1)");
+    }
+
+    #[test]
+    fn rejects_empty_pipe_context() {
+        assert!(extract_pipe_context("%>% ", 4).is_none());
+    }
+
+    #[test]
+    fn is_name_char_accepts_valid_chars() {
+        assert!(is_name_char('a'));
+        assert!(is_name_char('Z'));
+        assert!(is_name_char('0'));
+        assert!(is_name_char('.'));
+        assert!(is_name_char('_'));
+    }
+
+    #[test]
+    fn is_name_char_rejects_invalid_chars() {
+        assert!(!is_name_char('$'));
+        assert!(!is_name_char('@'));
+        assert!(!is_name_char(' '));
+        assert!(!is_name_char('-'));
+    }
+
+    #[test]
+    fn schema_completions_no_context() {
+        assert!(schema_completions("mean(x)", 7).is_none());
+        assert!(schema_completions("library(dplyr)", 15).is_none());
     }
 }

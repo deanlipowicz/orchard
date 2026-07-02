@@ -288,6 +288,29 @@ impl Completer for OrchardCompleter {
             };
         }
 
+        // Schema-aware completions for $ / @ / [[ — fire regardless of prefix length
+        if let Some((schema_items, schema_span)) = completion::schema_completions(line, pos) {
+            let span = Span::new(schema_span, pos.min(line.len()));
+            return suggestions(schema_items, span);
+        }
+
+        // Pipe chain completion for %>% — fires regardless of prefix length
+        if let Some((pipe_items, pipe_span)) = completion::pipe_completions(line, pos) {
+            let span = Span::new(pipe_span, pos.min(line.len()));
+            return suggestions(pipe_items, span);
+        }
+
+        // Variable selector for manual completion (Ctrl-Space / Tab)
+        if intent == CompletionIntent::Manual {
+            let (var_start, var_end) = completion::package_span(line, pos);
+            let var_prefix = line[var_start..var_end].to_string();
+            let vars = completion::variable_selector_completions(&var_prefix);
+            if !vars.is_empty() {
+                let span = Span::new(var_start, var_end);
+                return suggestions(vars, span);
+            }
+        }
+
         let (start, end) = completion::package_span(line, pos);
         let prefix = &line[start..end];
         if intent == CompletionIntent::Automatic
