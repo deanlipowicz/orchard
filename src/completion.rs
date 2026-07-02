@@ -368,35 +368,66 @@ pub fn extract_bracket_context(line: &str, cursor: usize) -> Option<(String, usi
         return None;
     }
 
-    // Find effective end (exclude trailing whitespace)
-    let effective = len
-        - bytes
-            .iter()
-            .rev()
-            .take_while(|b| b.is_ascii_whitespace())
-            .count();
-    if effective < 2 {
+    // Find the last occurrence of [[ in the text before cursor
+    // We search for "[[", but must handle the case where cursor is inside
+    // a quoted string like df[["partial or df[[partial
+
+    // Find last "[["
+    let bracket_start = text.rfind("[[");
+
+    // Also try just "[" — if there's a single [ with no preceding second [,
+    // it's not our context
+    let bracket_end = bracket_start?;
+    if bracket_end + 2 > len {
         return None;
     }
 
-    if bytes[effective - 1] == b'[' && bytes[effective - 2] == b'[' {
-        let obj_end = effective - 2;
-        let before = &text[..obj_end];
-        let obj_start = before
-            .rfind(|c: char| !is_name_char(c))
-            .map_or(0, |i| i + 1);
-        let obj_name = &before[obj_start..];
+    // Extract the object name before [[
+    let before_bracket = &text[..bracket_end];
+    let obj_start = before_bracket
+        .rfind(|c: char| !is_name_char(c))
+        .map_or(0, |i| i + 1);
+    let obj_name = &before_bracket[obj_start..];
 
-        // R identifiers must start with a letter or dot
-        if !obj_name.is_empty() {
-            let first = obj_name.chars().next().unwrap();
-            if first.is_ascii_alphabetic() || first == '.' {
-                return Some((obj_name.to_string(), effective));
-            }
-        }
+    // R identifiers must start with a letter or dot
+    if obj_name.is_empty() {
+        return None;
+    }
+    let first = obj_name.chars().next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '.' {
+        return None;
     }
 
-    None
+    // Determine what comes after [[ and where the completion span starts.
+    // Cases:
+    //   df[[        — cursor/trailing whitespace right after [[
+    //   df[["col    — opening double-quote + partial column name
+    //   df[['col    — opening single-quote + partial column name
+    //   df[[42      — numeric (still complete after [[ for edge cases)
+    let after_bracket = &text[bracket_end + 2..];
+
+    if after_bracket.is_empty() || after_bracket.trim().is_empty() {
+        // Nothing after [[ (or just trailing whitespace) — span starts right after [[
+        return Some((obj_name.to_string(), bracket_end + 2));
+    }
+
+    // Check for opening quote
+    let trimmed = after_bracket.trim_start();
+    let quote_offset = after_bracket.len() - trimmed.len();
+    let first_content = trimmed.chars().next();
+
+    match first_content {
+        Some('"') | Some('\'') => {
+            // Quoted column name — span starts after the opening quote
+            let span_start = bracket_end + 2 + quote_offset + 1;
+            Some((obj_name.to_string(), span_start))
+        }
+        _ => {
+            // Unquoted content after [[ (e.g. numeric index or unquoted name)
+            // Still usable — span starts right after [[
+            Some((obj_name.to_string(), bracket_end + 2))
+        }
+    }
 }
 
 /// Resolve column or slot names for an R object by calling R.
@@ -1035,7 +1066,36 @@ mod tests {
     }
 
     #[test]
-    fn detects_pipe_context_simple() {
+    fn detects_bracket_with_double_quote() {
+        let (name, span) = extract_bracket_context("df[[\"col", 8).unwrap();
+        assert_eq!(name, "df");
+        assert_eq!(span, 5); // after [["
+    }
+
+    #[test]
+    fn detects_bracket_with_single_quote() {
+        let (name, span) = extract_bracket_context("df[['col", 8).unwrap();
+        assert_eq!(name, "df");
+        assert_eq!(span, 5); // after [['
+    }
+
+    #[test]
+    fn detects_bracket_with_content_after() {
+        // Unquoted content after [[ (numeric index, etc.)
+        let (name, span) = extract_bracket_context("df[[42", 6).unwrap();
+        assert_eq!(name, "df");
+        assert_eq!(span, 4); // right after [[
+    }
+
+    #[test]
+    fn detects_bracket_with_trailing_whitespace() {
+        let (name, span) = extract_bracket_context("df[[ ", 5).unwrap();
+        assert_eq!(name, "df");
+        assert_eq!(span, 4); // right after [[
+    }
+
+    #[test]
+    fn test_pipe_context_simple() {
         let expr = extract_pipe_context("df %>% ", 7).unwrap();
         assert_eq!(expr, "df");
     }
