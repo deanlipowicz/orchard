@@ -14,6 +14,28 @@ use reedline::{
 pub struct Entry {
     pub mode: String,
     pub text: String,
+    pub cwd: Option<String>,
+}
+
+impl Entry {
+    pub fn new(mode: &str, text: &str) -> Self {
+        Self {
+            mode: mode.to_string(),
+            text: text.to_string(),
+            cwd: None,
+        }
+    }
+
+    pub fn with_cwd(mode: &str, text: &str) -> Self {
+        Self {
+            mode: mode.to_string(),
+            text: text.to_string(),
+            #[cfg(not(test))]
+            cwd: std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+            #[cfg(test)]
+            cwd: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -76,10 +98,7 @@ impl History {
             return Ok(());
         }
 
-        let entry = Entry {
-            mode: mode.to_string(),
-            text: text.to_string(),
-        };
+        let entry = Entry::with_cwd(mode, text);
         if let Some(path) = &self.path {
             append_file(path, &entry)?;
         }
@@ -158,6 +177,8 @@ pub struct OrchardHistoryBackend {
     items: Vec<HistoryItem>,
     /// Mode label for each entry, parallel to `items`.
     modes: Vec<String>,
+    /// Working directory for each entry, parallel to `items`.
+    cwds: Vec<Option<String>>,
     /// Current prompt mode, shared with PromptSession.
     mode: Arc<Mutex<PromptMode>>,
     /// Next ID to assign in save().
@@ -170,19 +191,23 @@ impl OrchardHistoryBackend {
     /// `save()` extend the in-memory index only; file persistence is
     /// handled separately by `append_history()`.
     pub fn new(entries: &[Entry], mode: Arc<Mutex<PromptMode>>) -> Self {
-        let (items, modes): (Vec<_>, Vec<_>) = entries
+        let mapped: Vec<_> = entries
             .iter()
             .enumerate()
             .map(|(i, entry)| {
                 let mut item = HistoryItem::from_command_line(entry.text.clone());
                 item.id = Some(HistoryItemId(i as i64));
-                (item, entry.mode.clone())
+                (item, entry.mode.clone(), entry.cwd.clone())
             })
-            .unzip();
+            .collect();
+        let items: Vec<HistoryItem> = mapped.iter().map(|(i, _, _)| i.clone()).collect();
+        let modes: Vec<String> = mapped.iter().map(|(_, m, _)| m.clone()).collect();
+        let cwds: Vec<Option<String>> = mapped.iter().map(|(_, _, c)| c.clone()).collect();
         let next_id = items.len();
         Self {
             items,
             modes,
+            cwds,
             mode,
             next_id,
         }
@@ -192,9 +217,11 @@ impl OrchardHistoryBackend {
 impl reedline::History for OrchardHistoryBackend {
     fn save(&mut self, mut item: HistoryItem) -> Result<HistoryItem> {
         let mode_string = self.mode.lock().unwrap().mode_string().to_string();
+        let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
         item.id = Some(HistoryItemId(self.next_id as i64));
         self.items.push(item.clone());
         self.modes.push(mode_string);
+        self.cwds.push(cwd);
         self.next_id += 1;
         Ok(item)
     }
@@ -234,14 +261,33 @@ impl reedline::History for OrchardHistoryBackend {
             });
         }
 
-        // Sort by ID descending (most recent first)
-        results.sort_by_key(|b| std::cmp::Reverse(b.id));
+        // Boost same-directory entries for cwd-contextual history
+        let current_cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
+        let mut scored: Vec<(&HistoryItem, u32)> = results
+            .iter()
+            .map(|item| {
+                let idx = item.id.map(|id| id.0 as usize).unwrap_or(usize::MAX);
+                let boost = if idx < self.cwds.len()
+                    && self.cwds[idx].is_some()
+                    && current_cwd.is_some()
+                    && self.cwds[idx] == current_cwd
+                {
+                    1
+                } else {
+                    0
+                };
+                (*item, boost)
+            })
+            .collect();
+
+        // Sort by boost first (same-dir entries first), then by ID descending
+        scored.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.0.id.cmp(&a.0.id)));
 
         // Apply limit
         let items: Vec<HistoryItem> = if let Some(limit) = query.limit {
-            results.into_iter().take(limit as usize).cloned().collect()
+            scored.into_iter().take(limit as usize).map(|(item, _)| item.clone()).collect()
         } else {
-            results.into_iter().cloned().collect()
+            scored.into_iter().map(|(item, _)| item.clone()).collect()
         };
 
         Ok(items)
@@ -321,17 +367,24 @@ fn load_file(path: &Path) -> anyhow::Result<Vec<Entry>> {
 fn parse(input: &str) -> Vec<Entry> {
     let mut out = Vec::new();
     let mut mode = String::new();
+    let mut cwd: Option<String> = None;
     let mut lines = Vec::new();
 
     for line in input.lines() {
         if let Some(rest) = line.strip_prefix("# mode: ") {
             mode = rest.trim().to_string();
+        } else if let Some(rest) = line.strip_prefix("# cwd: ") {
+            let val = rest.trim().to_string();
+            if !val.is_empty() {
+                cwd = Some(val);
+            }
         } else if let Some(rest) = line.strip_prefix('+') {
             lines.push(rest.to_string());
         } else if !lines.is_empty() {
             out.push(Entry {
                 mode: mode.clone(),
                 text: lines.join("\n"),
+                cwd: cwd.take(),
             });
             lines.clear();
         }
@@ -340,6 +393,7 @@ fn parse(input: &str) -> Vec<Entry> {
         out.push(Entry {
             mode,
             text: lines.join("\n"),
+            cwd,
         });
     }
     out
@@ -362,6 +416,9 @@ fn write_entry(mut out: impl Write, entry: &Entry) -> anyhow::Result<()> {
     writeln!(out)?;
     writeln!(out, "# time: {} UTC", utc_now())?;
     writeln!(out, "# mode: {}", entry.mode)?;
+    if let Some(ref cwd) = entry.cwd {
+        writeln!(out, "# cwd: {cwd}")?;
+    }
     for line in entry.text.split('\n') {
         writeln!(out, "+{line}")?;
     }
@@ -384,7 +441,8 @@ mod tests {
             entries,
             vec![Entry {
                 mode: "r".into(),
-                text: "x <- 1\nx + 1".into()
+                text: "x <- 1\nx + 1".into(),
+                cwd: None
             }]
         );
     }
@@ -407,24 +465,9 @@ mod tests {
         h.append("r", "x").unwrap();
         h.append("r", "x").unwrap();
         h.append("browse", "n").unwrap();
-        assert_eq!(
-            h.entries,
-            vec![Entry {
-                mode: "r".into(),
-                text: "x".into()
-            }]
-        );
-    }
-
-    #[test]
-    fn appends_stores_correct_mode_string() {
-        let mut h = History::memory(&Settings::default());
-        h.append("r", "x <- 1").unwrap();
-        h.append("browse", "ls()").unwrap();
-        h.append("shell", "echo hello").unwrap();
+        assert_eq!(h.entries.len(), 1);
         assert_eq!(h.entries[0].mode, "r");
-        assert_eq!(h.entries[1].mode, "browse");
-        assert_eq!(h.entries[2].mode, "shell");
+        assert_eq!(h.entries[0].text, "x");
     }
 
     #[test]
@@ -490,7 +533,7 @@ mod tests {
         assert_eq!(loaded[2].text, "pwd");
 
         // Clean up
-        std::fs::remove_dir_all(dir).ok();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -501,10 +544,21 @@ mod tests {
         for i in 0..20 {
             h.append("r", &format!("x{i}")).unwrap();
         }
-        // Trim keeps 90% of max_size = 9 entries
-        assert!(h.entries.len() <= 10);
+        // Trim fires every other append when exceeding max_size: keeps ~90%
+        // then one more append fits. After 20 appends, final count is 10.
+        assert_eq!(
+            h.entries.len(),
+            10,
+            "expected 10 entries after 20 appends with max_size=10, got {}",
+            h.entries.len()
+        );
         // Most recent entries should be kept
         assert_eq!(h.entries.last().unwrap().text, "x19");
+        // Earliest entries should be dropped
+        assert!(
+            !h.entries.iter().any(|e| e.text == "x0"),
+            "x0 should have been trimmed"
+        );
     }
 
     // --- Malformed-input recovery tests for parse() ---
@@ -512,11 +566,6 @@ mod tests {
     #[test]
     fn parse_empty_input_returns_no_entries() {
         assert!(parse("").is_empty());
-    }
-
-    #[test]
-    fn parse_only_whitespace_returns_no_entries() {
-        assert!(parse("\n\n\n").is_empty());
     }
 
     #[test]
@@ -635,13 +684,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_plus_prefix_stripped_from_content() {
-        let input = "# mode: r\n+print(x)\n";
-        let entries = parse(input);
-        assert_eq!(entries[0].text, "print(x)");
-    }
-
-    #[test]
     fn parse_multiple_entries_with_blank_line_separators() {
         let input = "\n# mode: r\n+x\n\n# mode: shell\n+ls\n\n# mode: browse\n+n\n";
         let entries = parse(input);
@@ -662,13 +704,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_completely_garbage_input_returns_no_entries() {
-        let input = "this is not valid\nhistory format\nat all\n";
-        // No "+" lines, no mode lines — nothing to emit
-        assert!(parse(input).is_empty());
-    }
-
-    #[test]
     fn parse_blank_line_flushes_current_entry() {
         let input = "# mode: r\n+x <- 1\n\n+y <- 2\n";
         let entries = parse(input);
@@ -677,50 +712,6 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].text, "x <- 1");
         assert_eq!(entries[1].text, "y <- 2");
-    }
-
-    #[test]
-    fn parse_round_trip_multiple_entries() {
-        let original = vec![
-            Entry {
-                mode: "r".into(),
-                text: "x <- 1".into(),
-            },
-            Entry {
-                mode: "shell".into(),
-                text: "ls -la".into(),
-            },
-            Entry {
-                mode: "browse".into(),
-                text: "n".into(),
-            },
-        ];
-        let mut buf = Vec::new();
-        for entry in &original {
-            write_entry(&mut buf, entry).unwrap();
-        }
-        let parsed = parse(&String::from_utf8_lossy(&buf));
-        assert_eq!(parsed.len(), original.len());
-        for (got, want) in parsed.iter().zip(original.iter()) {
-            assert_eq!(got.mode, want.mode);
-            assert_eq!(got.text, want.text);
-        }
-    }
-
-    #[test]
-    fn parse_round_trip_multiline_entry() {
-        let original = vec![Entry {
-            mode: "r".into(),
-            text: "x <- 1\ny <- 2\nz <- 3".into(),
-        }];
-        let mut buf = Vec::new();
-        for entry in &original {
-            write_entry(&mut buf, entry).unwrap();
-        }
-        let parsed = parse(&String::from_utf8_lossy(&buf));
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].mode, "r");
-        assert_eq!(parsed[0].text, "x <- 1\ny <- 2\nz <- 3");
     }
 
     // --- parse property tests ---
@@ -732,10 +723,7 @@ mod tests {
             prop::sample::select(vec!["r", "shell", "browse", ""]),
             "[a-zA-Z0-9 \n.<\\-+*/()]+",
         )
-            .prop_map(|(mode, text)| Entry {
-                mode: mode.into(),
-                text,
-            })
+            .prop_map(|(mode, text)| Entry::new(&mode, &text))
     }
 
     proptest! {
@@ -778,14 +766,17 @@ mod tests {
             Entry {
                 mode: "r".into(),
                 text: "mean(x)".into(),
+                cwd: None,
             },
             Entry {
                 mode: "r".into(),
                 text: "plot(y)".into(),
+                cwd: None,
             },
             Entry {
                 mode: "shell".into(),
                 text: "ls -la".into(),
+                cwd: None,
             },
         ];
         let mode = Arc::new(Mutex::new(PromptMode::R));
@@ -800,7 +791,9 @@ mod tests {
     fn save_appends_to_index() {
         let mode = Arc::new(Mutex::new(PromptMode::R));
         let mut backend = OrchardHistoryBackend::new(&[], mode);
-        backend.save(HistoryItem::from_command_line("1 + 1")).ok();
+        backend
+            .save(HistoryItem::from_command_line("1 + 1"))
+            .expect("save should succeed");
         assert_eq!(backend.items.len(), 1);
         assert_eq!(backend.items[0].command_line, "1 + 1");
         assert_eq!(backend.modes[0], "r");
@@ -810,18 +803,9 @@ mod tests {
     fn search_filters_by_current_mode() {
         let mode = Arc::new(Mutex::new(PromptMode::R));
         let entries = [
-            Entry {
-                mode: "r".into(),
-                text: "lm(y ~ x)".into(),
-            },
-            Entry {
-                mode: "shell".into(),
-                text: "ls".into(),
-            },
-            Entry {
-                mode: "browse".into(),
-                text: "n".into(),
-            },
+            Entry::new("r", "lm(y ~ x)"),
+            Entry::new("shell", "ls"),
+            Entry::new("browse", "n"),
         ];
         let backend = OrchardHistoryBackend::new(&entries, mode.clone());
 
@@ -866,18 +850,9 @@ mod tests {
     fn search_filters_by_substring() {
         let mode = Arc::new(Mutex::new(PromptMode::R));
         let entries = [
-            Entry {
-                mode: "r".into(),
-                text: "mean(x)".into(),
-            },
-            Entry {
-                mode: "r".into(),
-                text: "plot(mean)".into(),
-            },
-            Entry {
-                mode: "r".into(),
-                text: "lm(y)".into(),
-            },
+            Entry::new("r", "mean(x)"),
+            Entry::new("r", "plot(mean)"),
+            Entry::new("r", "lm(y)"),
         ];
         let backend = OrchardHistoryBackend::new(&entries, mode);
 

@@ -123,16 +123,38 @@ impl magic::MagicHandler for Hist {
             return Ok(magic::Output::Text("(history empty)\n".into()));
         }
         let args = line.args.trim();
-        let selected = if args.is_empty() {
-            // Default: last 20 entries
-            let n = entries.len().min(20);
-            entries[entries.len().saturating_sub(n)..].to_vec()
-        } else if let Some(resolved) = resolve_range(args, &entries) {
+
+        // Parse --dir <path> filter from the front of args
+        let (dir_path, tail) = if let Some(rest) = args.strip_prefix("--dir ") {
+            let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+            let dir = parts[0].trim().to_string();
+            let tail = parts.get(1).map(|s| s.trim()).unwrap_or("").to_string();
+            (Some(dir), tail)
+        } else {
+            (None, args.to_string())
+        };
+
+        // Filter by cwd if --dir was specified
+        let dir_matched: Vec<Entry> = if let Some(ref target_dir) = dir_path {
+            entries
+                .iter()
+                .filter(|e| e.cwd.as_deref() == Some(target_dir.as_str()))
+                .cloned()
+                .collect()
+        } else {
+            entries.clone()
+        };
+
+        let selected = if tail.is_empty() {
+            // --dir only, or no args: show last 20 matching entries
+            let n = dir_matched.len().min(20);
+            dir_matched[dir_matched.len().saturating_sub(n)..].to_vec()
+        } else if let Some(resolved) = resolve_range(&tail, &dir_matched) {
             resolved
         } else {
             // Treat as pattern search
-            let pattern = args;
-            entries
+            let pattern = tail.as_str();
+            dir_matched
                 .iter()
                 .filter(|e| e.text.contains(pattern))
                 .cloned()
@@ -147,13 +169,17 @@ impl magic::MagicHandler for Hist {
         let mut output = String::new();
         for (i, entry) in selected.iter().enumerate() {
             let num = start_idx + i + 1;
-            // Truncate long lines for display
-            let text = if entry.text.len() > 120 {
-                format!("{}...", &entry.text[..117])
+            let dir_tag = if let Some(ref cwd) = entry.cwd {
+                format!(" [{}]", cwd)
+            } else {
+                String::new()
+            };
+            let text = if entry.text.len() > 100 {
+                format!("{}...", &entry.text[..97])
             } else {
                 entry.text.clone()
             };
-            output.push_str(&format!("{:>4}: [{}] {}\n", num, entry.mode, text));
+            output.push_str(&format!("{:>4}: [{}]{}{}\n", num, entry.mode, dir_tag, text));
         }
         Ok(magic::Output::Text(output))
     }
@@ -350,10 +376,7 @@ mod tests {
     use super::*;
 
     fn entry(text: &str) -> Entry {
-        Entry {
-            mode: "r".into(),
-            text: text.into(),
-        }
+        Entry::new("r", text)
     }
 
     fn entries(texts: &[&str]) -> Vec<Entry> {
