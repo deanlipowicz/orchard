@@ -1,4 +1,6 @@
 use crate::lexer::cursor_in_string;
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use std::{
     collections::HashMap,
     fs,
@@ -68,16 +70,15 @@ pub fn package_span(text: &str, cursor: usize) -> (usize, usize) {
 pub fn package_completions(text: &str, cursor: usize, packages: &[String]) -> Vec<Completion> {
     let prefix = package_prefix(text, cursor);
     let in_package_context = package_context(text, cursor) || cursor_in_string(text, cursor);
-    packages
-        .iter()
-        .filter(|p| fuzzy_match(p, prefix))
-        .map(|p| Completion {
+    rank_completions(packages, prefix)
+        .into_iter()
+        .map(|c| Completion {
             replacement: if in_package_context {
-                p.clone()
+                c.replacement
             } else {
-                format!("{p}::")
+                format!("{}::", c.replacement)
             },
-            display: p.clone(),
+            display: c.display,
         })
         .collect()
 }
@@ -317,6 +318,49 @@ pub fn fuzzy_match(name: &str, query: &str) -> bool {
     true
 }
 
+/// A global fuzzy matcher instance (skim backend).
+fn fuzzy_matcher() -> &'static SkimMatcherV2 {
+    static MATCHER: OnceLock<SkimMatcherV2> = OnceLock::new();
+    MATCHER.get_or_init(SkimMatcherV2::default)
+}
+
+/// Rank and score a set of candidate names against a prefix.
+///
+/// Uses `fuzzy-matcher` (skim backend) for scored fuzzy matching and
+/// adds a frequency boost from prior completion history. Returns
+/// `Completion` items sorted by descending score (best first).
+pub fn rank_completions(names: &[String], prefix: &str) -> Vec<Completion> {
+    if names.is_empty() || prefix.is_empty() {
+        return names
+            .iter()
+            .map(|n| Completion {
+                replacement: n.clone(),
+                display: n.clone(),
+            })
+            .collect();
+    }
+
+    let matcher = fuzzy_matcher();
+    let mut scored: Vec<(f64, &String)> = names
+        .iter()
+        .filter_map(|n| {
+            matcher
+                .fuzzy_match(n, prefix)
+                .map(|score| (score as f64 + crate::frequency::frequency_boost(n), n))
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    scored
+        .into_iter()
+        .map(|(_, n)| Completion {
+            replacement: n.clone(),
+            display: n.clone(),
+        })
+        .collect()
+}
+
 /// Detect a `$` or `@` accessor context before the cursor.
 ///
 /// Returns `(object_name, operator, span_start)` where `span_start` is the
@@ -510,14 +554,7 @@ pub fn schema_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>,
     if let Some((obj_name, op, span_start)) = extract_dollar_at_context(line, cursor) {
         let prefix = &line[span_start..cursor.min(line.len())];
         let names = resolve_schema(&obj_name, op);
-        let items: Vec<Completion> = names
-            .iter()
-            .filter(|n| fuzzy_match(n, prefix))
-            .map(|n| Completion {
-                replacement: n.clone(),
-                display: n.clone(),
-            })
-            .collect();
+        let items = rank_completions(&names, prefix);
         if !items.is_empty() {
             return Some((items, span_start));
         }
@@ -527,14 +564,7 @@ pub fn schema_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>,
     if let Some((obj_name, span_start)) = extract_bracket_context(line, cursor) {
         let prefix = &line[span_start..cursor.min(line.len())];
         let names = resolve_schema(&obj_name, '$'); // $ → names() for [[ too
-        let items: Vec<Completion> = names
-            .iter()
-            .filter(|n| fuzzy_match(n, prefix))
-            .map(|n| Completion {
-                replacement: n.clone(),
-                display: n.clone(),
-            })
-            .collect();
+        let items = rank_completions(&names, prefix);
         if !items.is_empty() {
             return Some((items, span_start));
         }
@@ -605,14 +635,7 @@ pub fn pipe_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, u
     let prefix = after_pipe.trim_start();
     let span_start = pipe_end + (after_pipe.len() - prefix.len());
 
-    let items: Vec<Completion> = names
-        .iter()
-        .filter(|n| fuzzy_match(n, prefix))
-        .map(|n| Completion {
-            replacement: n.clone(),
-            display: n.clone(),
-        })
-        .collect();
+    let items = rank_completions(&names, prefix);
 
     if items.is_empty() {
         return None;
@@ -646,19 +669,27 @@ pub fn variable_selector_completions(prefix: &str) -> Vec<Completion> {
     })
     .unwrap_or_default();
 
-    result
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, '\t');
-            let name = parts.next()?;
-            if !fuzzy_match(name, prefix) {
-                return None;
-            }
-            let cls = parts.next().unwrap_or("");
-            let sz = parts.next().unwrap_or("");
+    // Parse raw data: name → (class, size)
+    let mut raw_map: HashMap<String, (String, String)> = HashMap::new();
+    for line in result.lines() {
+        let mut parts = line.splitn(3, '\t');
+        if let Some(name) = parts.next() {
+            let cls = parts.next().unwrap_or("").to_string();
+            let sz = parts.next().unwrap_or("").to_string();
+            raw_map.insert(name.to_string(), (cls, sz));
+        }
+    }
+
+    let names: Vec<String> = raw_map.keys().cloned().collect();
+    let ranked = rank_completions(&names, prefix);
+
+    ranked
+        .into_iter()
+        .filter_map(|c| {
+            let (cls, sz) = raw_map.get(&c.replacement)?;
             Some(Completion {
-                replacement: name.to_string(),
-                display: format!("{}  ({}, {})", name, cls, sz),
+                replacement: c.replacement,
+                display: format!("{}  ({}, {})", c.display, cls, sz),
             })
         })
         .collect()
@@ -804,15 +835,8 @@ fn variable_name_completions(prefix: &str) -> Vec<Completion> {
     })
     .unwrap_or_default();
 
-    result
-        .lines()
-        .map(String::from)
-        .filter(|name| fuzzy_match(name, prefix))
-        .map(|name| Completion {
-            replacement: name.clone(),
-            display: name,
-        })
-        .collect()
+    let names: Vec<String> = result.lines().map(String::from).collect();
+    rank_completions(&names, prefix)
 }
 
 // ── Spellcheck / "Did You Mean" ──────────────────────────────────────────
@@ -1024,24 +1048,37 @@ pub fn function_arg_completions(line: &str, cursor: usize) -> Option<(Vec<Comple
     })
     .unwrap_or_default();
 
-    let items: Vec<Completion> = result
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            let (arg_name, default_str) = line.split_once(" = ").unwrap_or((line, ""));
-            if !fuzzy_match(arg_name, prefix) {
-                return None;
-            }
-            let display = if default_str.is_empty() {
-                arg_name.to_string()
+    // Parse raw argument data: name → default string
+    let mut arg_map: HashMap<String, Option<String>> = HashMap::new();
+    for raw_line in result.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (arg_name, default_str) = line.split_once(" = ").unwrap_or((line, ""));
+        arg_map.insert(
+            arg_name.to_string(),
+            if default_str.is_empty() {
+                None
             } else {
-                format!("{} = {}", arg_name, default_str)
+                Some(default_str.to_string())
+            },
+        );
+    }
+
+    let arg_names: Vec<String> = arg_map.keys().cloned().collect();
+    let ranked = rank_completions(&arg_names, prefix);
+
+    let items: Vec<Completion> = ranked
+        .into_iter()
+        .filter_map(|c| {
+            let default_str = arg_map.get(&c.replacement)?;
+            let display = match default_str {
+                Some(d) => format!("{} = {}", c.replacement, d),
+                None => c.replacement.clone(),
             };
             Some(Completion {
-                replacement: format!("{} = ", arg_name),
+                replacement: format!("{} = ", c.replacement),
                 display,
             })
         })

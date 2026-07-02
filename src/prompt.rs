@@ -411,6 +411,12 @@ fn installed_packages() -> anyhow::Result<Vec<String>> {
 }
 
 fn suggestions(items: Vec<completion::Completion>, span: Span) -> Vec<Suggestion> {
+    // Record suggested completions in the frequency tracker so
+    // frequently-requested items get boosted in future rankings.
+    for item in &items {
+        crate::frequency::record_completion(&item.replacement);
+    }
+
     items
         .into_iter()
         .map(|item| Suggestion {

@@ -5,6 +5,7 @@ pub mod completion;
 pub mod dyld;
 pub mod editing_hook;
 pub mod env_setup;
+pub mod frequency;
 pub mod history;
 pub mod lexer;
 pub mod magic;
