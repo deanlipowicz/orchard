@@ -1,4 +1,143 @@
-# Developer Log
+# Developer Log — Chronological Record of orchard Development
+
+**What this is:** A chronological log of all development sessions, design
+decisions, audits, and recovery events during the orchard R REPL project.
+Entries are ordered by date with the newest at the top of the file.
+
+**Related documents:**
+- Active roadmap: `docs/development-plan.md`
+- Feature specs: `docs/superpowers/specs/`
+- Implementation plans: `docs/superpowers/plans/`
+- Feature comparison: `docs/review-2026-07-01.md`
+
+---
+
+## 2026-07-02 — Test Suite Hardening
+
+**Goal:** Strengthen weak assertions, fix silent-skip gating, add deterministic
+tests for untested modules, and add property tests across the codebase.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `tests/magic_framework.rs` | Rewrote: removed redundant registry-presence checks already covered by `magic.rs` inline tests; replaced tautological `pwd` assertion with exact `current_dir()` match; added sorted-order, specific-var get, and unset-var tests for `env`; added `EnvGuard` RAII struct |
+| `tests/embedded_r.rs` | Rewrote: converted 6 R-gated tests from silent early-return to `#[ignore]` with message "requires ORCHARD_TEST_R=1 env var and a working R installation"; added `r_test!` macro and `r_test_enabled()` helper |
+| `src/r_runtime.rs` | Added 2 deterministic interrupt-flag tests: `interrupted_flag_survives_non_clearing_reads` (idempotent set, non-clearing reads, single clear) and `interrupted_flag_concurrent_set_and_clear_is_consistent` (100-iteration set/clear cycle). Added 4 `proptest` property tests for `strip_ansi` (idempotence, no-CSI-in-output, plain-text-unchanged, length-preserved). Fixed pre-existing `unused variable: tail` warning (renamed to `_tail`). |
+| `src/editing_hook.rs` | Strengthened 6 `is_some()`-only assertions to check exact `EditCommand` sequences: `auto_pair_inserts_pair_when_context_allows` (InsertChar/InsertChar/MoveLeft), `closing_delim_dedents_blank_line` (4 Backspace + InsertChar), `backspace_deletes_empty_pair` (Backspace/Delete), `backspace_in_leading_indent_deletes_tab_size` (4 Backspace), `enter_indents_after_open_brace` (InsertNewline + InsertString 4 spaces), `tab_inserts_spaces_in_leading_indent` (InsertString 4 spaces). Added `assert_edit_commands` helper. |
+| `src/r_discovery.rs` | Added 11 tests covering discover precedence (explicit binary > R_HOME > R_BINARY env), version parsing (first line, empty output → NA), home path joining, and failure modes (nonexistent binary, failing R binary, empty RHOME output). Added `EnvGuard` with `ENV_LOCK` mutex, `make_fake_r_binary`/`make_failing_r_binary`/`make_empty_r_binary` helpers using temp shell scripts. |
+| `src/magics/config.rs` | Added 12 tests for `Alias` (empty=list, name=value=set, bare name=error, trims whitespace), `Unalias` (empty=error, remove existing, remove nonexistent), and `expand_aliases` (replaces first word, preserves leading whitespace, passes through unknown/empty). Added `AliasGuard` RAII with `TEST_LOCK` mutex to serialize tests on shared `ALIAS_MAP`. |
+| `src/magics/shell.rs` | Added 18 tests: `Bookmark` (list empty, set, reject nonexistent dir, delete existing, delete nonexistent, delete without name=error, jump to existing, jump to nonexistent=error), `Cd` (empty=home, tilde=home, nonexistent=error, file=not-a-directory, existing dir, `-` without OLDPWD), `Env` (set+get round-trip, set via handler, get unset=not-set). Added `BookmarkGuard` and `EnvGuard` RAII structs. |
+| `src/lexer.rs` | Added 47 tokenization tests covering all `tokenize()` branches: whitespace runs, comments (to-EOF, stops-at-newline, empty), raw strings (parens/brackets/braces, with dashes, unterminated→Error, mismatched close→Error, containing quotes/dashes), quoted strings (double/single, escaped quote/backslash, unterminated→Error, empty, escape sequences), backtick names (complete, unterminated→Error, empty), numbers (integer, decimal, leading-dot, underscore, scientific, leading-dot-alone=Name), names (simple, with dot, with underscore, starting dot/underscore), punctuation (all 8 chars), operators (all single-char, multi-char `<-`/`->`/`==`/`!=`/`>=`/`<=`/`&&`/`||`/`|>`/`::`/`:::`/`<<-`/`->>`), mixed expressions (assignment, function call, full line with comment, pipe chain, empty input). |
+| `src/history.rs` | Added 21 malformed-input recovery tests for `parse()`: empty input, whitespace-only, headers-only, content without mode header (empty mode), truncated `# mode:`/`# time:` headers, garbage lines between entries (triggers flush), garbage before content (dropped), truncated entry at EOF (emitted), mode persistence, mode change, multiline join, empty content line preserved, `+` prefix stripped, multiple entries with separators, mode trailing whitespace trimmed, completely garbage input (no entries), blank line flush, round-trip single/multiline. Added 3 `proptest` property tests: `prop_round_trip_single_entry`, `prop_round_trip_multiple_entries`, `prop_parse_never_panics`. |
+| `src/prompt.rs` | Strengthened `edit_mode_does_not_panic`: replaced no-op `let _mode = ...` with `mode.edit_mode()` call and `matches!` assertion against `PromptEditMode::Emacs | PromptEditMode::Vi(_)`. |
+| `Cargo.toml` | Added `[dev-dependencies]` section with `proptest = "1"`. |
+| `vendor/reedline/src/edit_mode/base.rs` | Reverted uncommitted `+ std::fmt::Debug` bound on `EditMode` trait that broke compilation (`Vi`/`Emacs` structs don't implement `Debug`). |
+
+**Test count:** 265 lib tests (up from 238), 7 magic_framework integration tests,
+7 embedded_r tests (all `#[ignore]`'d). Total: 279 tests, 0 failures.
+
+**Verification:**
+
+```
+cargo fmt:       clean
+cargo clippy:    7 warnings (all pre-existing, none in new test code)
+cargo test:      265 passed, 0 failed, 1 ignored (lib)
+                 7 passed, 0 failed (magic_framework)
+                 0 passed, 7 ignored (embedded_r)
+```
+
+**Status:** Complete. All 10 test-suite hardening recommendations implemented and
+verified.
+
+---
+
+## 2026-07-02 — P0 Magic Framework Complete
+
+**Plan:** `docs/superpowers/plans/2026-07-01-p0-magic-framework.md`
+
+The magic registry and 49 handlers were already built, but the core REPL
+integration was never wired — `%` prefix parsing, dispatch, and the
+`automagic` setting were all missing. This gap meant none of the 49 handlers
+were reachable from the REPL.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/settings.rs` | Added `automagic: bool` field to `Settings`, default `false`, loaded from R option `orchard.automagic` |
+| `src/r_runtime.rs` | Added `automagic` to `ConsoleSettings` + `From<Settings>` impl |
+| `src/magic.rs` | Added `parse_magic(text, automagic)` — `%`/`%%` prefix parsing with automagic name lookup; `dispatch(cmd)` — clones handler `Arc` out of registry then calls `run()` to avoid reentrant deadlock; `is_magic_name(name)`; `register_magic(handler)` |
+| `src/r_runtime.rs` (REPL) | Wired `parse_magic` → `dispatch` into both piped `read_console()` and interactive `read_console_interactive()` with full outcome routing (Text→print, Eval→queue, DisplayAndEval→both, Silent→continue) |
+| Tests | 14 new unit tests covering parse, automagic, dispatch, and `is_magic_name` |
+
+**Key architectural fix:** `dispatch()` clones the handler `Arc` out of the
+registry before dropping the lock and calling `handler.run()`. Without this,
+handlers like `%lsmagic` (which also lock the registry to list handlers) would
+deadlock on `std::sync::Mutex` (non-reentrant).
+
+**Verification:**
+
+```
+cargo check:    0 errors, 0 warnings
+cargo clippy:   0 warnings
+cargo test:     238 passed, 0 failed, 1 ignored (lib: 231, magic_framework: 7)
+```
+
+**Status:** Complete. The 49 magic handlers are now reachable from the REPL via
+`%` prefix. Automagic can be enabled with `options(orchard.automagic = TRUE)`
+to use magics without the `%` prefix (guarded against R function call
+confusion by checking for `(` after the name). Plan file deleted.
+
+---
+
+## 2026-07-02 — Plan Review: History Backend Plan Complete
+
+**Plan:** `docs/superpowers/plans/2026-06-29-history-backend-plan.md`
+
+Implemented as part of **Milestone C — Loaded History Navigation** (see
+`2026-06-29 — Milestone C Loaded History Navigation` entry below).
+`OrchardHistoryBackend` (reedline `History` trait impl), `PromptSession::with_arc_history()`,
+mode-aware search, and all plan tests are live. The plan file is being deleted;
+the implementation is fully covered in the existing log entry.
+
+**Status:** Complete. Plan superseded.
+
+---
+
+## 2026-07-02 — Codebase Cleanup Batch C Complete
+
+**Gap:** The codebase cleanup plan (`docs/superpowers/plans/2026-07-02-codebase-cleanup.md`)
+had Batch C (Prefix Drift & Boilerplate Consolidation) as the only remaining item.
+Batch C covered two changes:
+1. Replace `radian.` prefix with `orchard.` in `src/magics/config.rs` — the
+   rest of the codebase uses `orchard.*` (see `settings.rs`).
+2. Replace `install_console_settings()` and `ConsoleSettings::default()` with
+   the existing `From<Settings>` impl.
+
+**Changes:**
+
+| File | Change |
+|------|--------|
+| `src/magics/config.rs` | Replaced 8 occurrences of `radian.` → `orchard.` in R option queries and display strings (Config and Colors handlers). |
+| `src/r_runtime.rs` | Removed `impl Default for ConsoleSettings` (was delegating to `Settings::default().into()`). All 2 call sites updated to `ConsoleSettings::from(Settings::default())`. |
+| `src/editing_hook.rs` | Replaced 9 `ConsoleSettings::default()` → `ConsoleSettings::from(Settings::default())` in tests. Added `#[cfg(test)] use crate::settings::Settings`. |
+| `src/prompt.rs` | Replaced 3 `ConsoleSettings::default()` → `ConsoleSettings::from(Settings::default())` in tests. Added `#[cfg(test)] use crate::settings::Settings`. |
+| `docs/superpowers/plans/2026-07-02-codebase-cleanup.md` | Status updated: all four batches (A, B, C, D) complete. |
+
+**Verification:**
+
+```
+cargo check:    0 errors, 0 warnings
+cargo clippy:   0 warnings
+cargo test:     143 passed, 0 failed, 2 ignored
+```
+
+**Status:** The entire codebase cleanup plan is complete. All four batches
+(A — Dead Code Removal, B — Shared Utilities Consolidation, C — Prefix Drift
+& Boilerplate Consolidation, D — Remove `editing.rs`) are finished.
+
+---
 
 ## 2026-06-29 - Strategic Steering Release Framework
 
@@ -1453,3 +1592,829 @@ cargo check      # 0 errors
 cargo test --lib # 154 passed, 0 failed
 ```
 (Output capped at 50 KB. Showing lines 1-1128. Use offset=1129 to continue.)
+
+## 2026-07-02 — Schema-Aware Autocomplete Assessment
+
+**Context:** User asked whether the application has schema-aware autocomplete
+and a data viewer/visualiser. Investigation of `src/completion.rs` and
+`src/prompt.rs` revealed the current state.
+
+### Autocomplete: What Exists
+
+The completion system at `src/completion.rs` delegates R-code completion
+entirely to R's built-in `utils:::.completeToken()`. This means R handles:
+
+- **Column names after `$`** — R knows the columns of loaded data frames
+  and suggests them when the user types `dataframe$`
+- **Function arguments** — R suggests parameter names inside `foo(`
+- **Namespace members** — R suggests exports after `pkg::`
+- **Object names** — R suggests variables in the global workspace
+
+Additionally, the Rust side implements:
+- **Package completion** (`library(`, `require(` contexts) — uses
+  `.packages(all.available = TRUE)` from R
+- **LaTeX completion** — 1983-entry static table for `\alpha` → `α` etc.
+- **Shell path completion** — file/directory expansion in `;` shell mode
+- **Prefix-length gating** — respects `completion_prefix_length` setting
+- **Timeout control** — `namespace_completion()` skips timeout for `::`
+  queries; general R completion respects `completion_timeout`
+
+### Autocomplete: What Does NOT Exist
+
+- **No Rust-side schema awareness.** The Rust code does not inspect column
+  types, table schemas, or database schemas. Everything goes through R's
+  opaque `utils:::.completeToken()` — the Rust side cannot customize or
+  extend what R returns.
+- **No SQL/database introspection.** No completion for database tables,
+  columns, or SQL keywords when connected to a DB via R packages.
+- **No type-inference-based completion.** The Rust side does not track
+  what type an expression evaluates to, so it cannot suggest type-specific
+  completions.
+- **No custom column-name context detection.** The `$` operator is tokenized
+  as `TokenKind::Operator` in the lexer (`src/lexer.rs`) but triggers no
+  special completion behavior on the Rust side.
+- **No timeout differentiation** beyond the `::` namespace case — all
+  non-namespace R completions use the same timeout.
+
+### Data Viewer: What Exists
+
+| Handler | Mechanism | Scope |
+|---------|-----------|-------|
+| `%View` | R's GUI `utils::View()` | Opens external spreadsheet window |
+| `%head` | `head(expr)` | Prints first rows as text |
+| `%str` | `utils::str(expr)` | Prints structure info |
+| `%skim` | `skimr::skim(expr)` | Summary statistics |
+| `%tidy` | `broom::tidy(model)` | Model result table |
+| `%plot` | `plot(expr)` | R graphics device |
+| `%dim` / `%names` | `dim()` / `names()` | Shape and column names |
+
+### Data Viewer: What Does NOT Exist
+
+- **No in-terminal interactive data viewer.** No DT, reactable, ratatui,
+  or custom TUI table browser exists anywhere in the codebase.
+- **No `%browse` magic** for interactive data browsing.
+- **No `%glimpse` or `%summary` handlers** (listed as aspirational in
+  `docs/development-plan.md` but not implemented).
+- All data viewing goes through R's standard print/output or R's GUI
+  `utils::View()` — there is no custom rendering pipeline.
+- The earlier developer-log entry at line 918 defers this: *"Future option:
+  a TUI popup for interactive object browsing (post-v1)."*
+
+### Recommendations
+
+1. **Schema-aware autocomplete improvements:**
+   - For database-aware completion, add a completer module that queries
+     the active DB connection via R's DBI interface.
+   - For improved `$` completion, parse the token before `$` in Rust,
+     evaluate its class/columns, and return column names directly —
+     avoids the round-trip through `utils:::.completeToken()`.
+   - Add timeout differentiation: classify completions as "fast" (names,
+     columns, namespaces) vs "slow" (function completions that trigger
+     package loading).
+
+2. **In-terminal data viewer:**
+   - Add a `comfy-table` or `ratatui` dependency for TUI table rendering.
+   - Create a `%browse` handler that opens an interactive table popup
+     with sort/filter/scroll, similar to `daff` or `visidata`.
+   - Route rendered output through R's `write_console_ex` callback for
+     proper REPL integration.
+   - The deferred TUI browser from developer-log line 918 would address
+     this gap directly.
+
+## 2026-07-02 — Release Roadmap: v0.1 → v0.9 → v1.0
+
+**Context:** Comprehensive gap analysis comparing the current codebase (49
+registered handlers, 164 tests) against the aspirational 72+ handler target
+documented in `docs/review-2026-07-01.md` (IPython/radian/Julia/zsh comparisons)
+and `docs/development-plan.md` (phase-by-phase handler tables).
+
+Reference features that no longer apply (UI patterns unique to other shells
+that have no R equivalent) were excluded — see `docs/review-2026-07-01.md`
+§3.11 for the full exclusion list.
+
+---
+
+### Current Baseline (v0.1 Experimental)
+
+| Metric | Value |
+|--------|-------|
+| Registered handlers | 49 |
+| Passing tests | 164 (158 lib + 6 magic_framework) |
+| Cargo check | 0 errors |
+| 1 ignored test | `test_shell_sx_echo` — requires R runtime |
+| Git | Initialized, 2 commits |
+| Platform | Linux only |
+| CI | None |
+| Packaging | None |
+
+---
+
+### Full Feature Delta: 49 → 72+ handlers
+
+#### P0 Framework (missing 1)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%automagic` | 1h | High | Toggle for automatic `%` prefix detection. Needs dispatch modification in `read_console_interactive`. |
+
+#### P2 Object Browser (missing 2)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%summary` | 0.5h | High | Wraps `summary()` in R |
+| `%glimpse` | 0.5h | High | Wraps `dplyr::glimpse()` with optional package check |
+
+#### P4 History (missing 3)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%save` | 1h | High | Save history entries to file |
+| `%rerun` | 2h | Medium | Re-execute history range. Needs REPL code injection — current dispatch only returns Text/Silent. |
+| `%recall` | 2h | Medium | Recall history range into editor. Same injection challenge. |
+
+#### P5 Debugger (missing 5)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%debugonce` | 0.5h | Medium | Set `debugonce()` on a function |
+| `%undebug` | 0.5h | Medium | Remove `debug()` from a function |
+| `%browser` | 0.5h | Medium | Invoke `browser()` in a function |
+| `%n` | 0.5h | Medium | Debugger "next" command |
+| `%finish` | 0.5h | Medium | Debugger "finish" command |
+| `%Q` | 0.5h | Medium | Debugger "quit" command |
+
+#### P6 Documentation (missing 2)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%help_pkg` | 0.5h | High | `help(package=...)` |
+| `%help_page` | 0.5h | High | `help(...)` with rendered output |
+
+#### P9 Config (missing 1)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%xmode` | 0.5h | High | Traceback verbosity control (plain/context/verbose) |
+
+#### B6 Namespace Cleanup (missing 3)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%reset` | 0.5h | Medium | `rm(list=ls())` with confirmation |
+| `%reset_selective` | 0.5h | Medium | Selective namespace cleanup by pattern |
+| `%xdel` | 0.5h | Medium | Delete specific variables |
+
+#### B10 Session Management (missing 5)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%store` | 3h | Low | Save/restore variables across sessions. Needs RDS serialization. |
+| `%logstart` | 1h | Low | Start session logging |
+| `%logstop` | 0.5h | Low | Stop session logging |
+| `%logstate` | 0.5h | Low | Show logging state |
+
+#### B11 Extension System (missing 3)
+
+| Handler | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| `%load_ext` | 2h | Low | Load extension module (requires extension API design) |
+| `%reload_ext` | 1h | Low | Reload extension |
+| `%unload_ext` | 1h | Low | Unload extension |
+
+#### Non-Handler Features
+
+| Feature | Effort | Priority | Notes |
+|---------|--------|----------|-------|
+| CI pipeline (Linux) | 1h | High | `.github/workflows/ci.yml` for `cargo test` + `cargo clippy` |
+| CI pipeline (macOS) | 2h | Low | Needs macos-latest runner |
+| macOS acceptance | 2h manual | Low | Requires physical Mac hardware |
+| Release packaging | 4h | Medium | `cargo deb`, `cargo rpm`, binary distribution |
+| User documentation | 4h | Medium | README update, feature guide, migration guide |
+| TUI data viewer | 4h | Low | Interactive in-terminal table browser (deferred post-v1) |
+| Schema-aware autocomplete | 4h | Low | DB-aware completion, type-inference, improved `$` handling |
+| Reticulate prompt | 8h+ | Very Low | Requires Python interpreter in process |
+| On-load/cleanup hooks | 2h | Very Low | `register_cleanup` equivalent |
+| Askpass setup | 1h | Very Low | Rare use case |
+
+---
+
+### Priority Tiers
+
+**Tier 1 — High use, low effort (< 1 hour):** Implement in the next version.
+
+| Feature | Effort | Rationale |
+|---------|--------|-----------|
+| `%xmode` | 0.5h | Users hit tracebacks constantly; simple toggle |
+| `%save` | 1h | History persistence is a core R workflow |
+| `%automagic` | 1h | Eliminates `%` typing friction |
+| `%help_pkg` / `%help_page` | 1h | Documentation access is daily-use |
+| `%summary` / `%glimpse` | 1h | Data inspection is the most common R task |
+| CI pipeline (Linux) | 1h | Enables automated verification |
+
+**Tier 2 — Moderate use, low-medium effort (1-2 hours):** Implement in v0.4–v0.5.
+
+| Feature | Effort | Rationale |
+|---------|--------|-----------|
+| Debugger handlers (6) | 3h | Completes debugger parity |
+| `%reset` / `%reset_selective` / `%xdel` | 1.5h | Namespace management |
+| `%rerun` / `%recall` | 4h | REPL code injection mechanism needed |
+
+**Tier 3 — Specific use cases, moderate effort (2-4 hours):** Implement in v0.6–v0.7.
+
+| Feature | Effort | Rationale |
+|---------|--------|-----------|
+| `%store` | 3h | Session persistence — valuable but not daily |
+| Release packaging | 4h | Enables distribution |
+| User documentation | 4h | Required for v1.0 |
+
+**Tier 4 — Low use, high effort (4+ hours):** Implement in v0.8–v0.9.
+
+| Feature | Effort | Rationale |
+|---------|--------|-----------|
+| Logging handlers | 2h | Rarely used by most R users |
+| Extension system | 4h | Requires API design |
+| macOS support | 4h | Blocked on hardware |
+| TUI data viewer | 4h | Post-v1 deferred |
+| Schema-aware autocomplete | 4h | Enhancement, not core |
+| Reticulate prompt | 8h+ | Python dependency |
+
+---
+
+### v0.1 → v0.9 → v1.0 Roadmap
+
+#### v0.2 — Shell + File Parity (DONE)
+
+**Goal:** Basic shell utilities and file execution covered.
+**Status:** ✅ Complete (49 handlers).
+
+**Added this version:**
+- `%cd`, `%ls`, `%sx` — Shell commands
+- `%pushd`, `%popd`, `%dhist` — Directory stack
+- `%run`, `%load` — File execution
+- `%time`, `%timeit`, `%prun` — Timing/profiling
+
+**Exit gate:** 49 handlers, all shell/file/timing handlers working.
+
+---
+
+#### v0.3 — Quick Wins + Polish
+
+**Goal:** High-impact low-effort features that remove daily friction.
+
+**Target:** 56 handlers (49 + 7)
+
+| Feature | Type | Effort |
+|---------|------|--------|
+| `%xmode` | New handler | 0.5h |
+| `%save` | New handler | 1h |
+| `%automagic` | New handler + dispatch | 1h |
+| `%help_pkg` | New handler | 0.5h |
+| `%help_page` | New handler | 0.5h |
+| `%summary` | New handler | 0.5h |
+| `%glimpse` | New handler | 0.5h |
+| CI pipeline (Linux) | Infrastructure | 1h |
+
+**Minor versions:**
+- v0.3.1: `%xmode` + CI pipeline
+- v0.3.2: `%save` + `%automagic`
+- v0.3.3: `%help_pkg` + `%help_page`
+- v0.3.4: `%summary` + `%glimpse`
+
+**Exit gate:** 56 handlers, CI passing on Linux, automagic working.
+
+---
+
+#### v0.4 — Debugger & Data Completeness
+
+**Goal:** Complete debugger parity and round out data inspection.
+
+**Target:** 62 handlers (56 + 6)
+
+| Feature | Type | Effort |
+|---------|------|--------|
+| `%debugonce` | New handler | 0.5h |
+| `%undebug` | New handler | 0.5h |
+| `%browser` | New handler | 0.5h |
+| `%n` | New handler | 0.5h |
+| `%finish` | New handler | 0.5h |
+| `%Q` | New handler | 0.5h |
+
+**Minor versions:**
+- v0.4.1: `%debugonce` + `%undebug` + `%browser`
+- v0.4.2: `%n` + `%finish` + `%Q`
+
+**Exit gate:** 62 handlers, full debugger command set.
+
+---
+
+#### v0.5 — Namespace & History Operations
+
+**Goal:** Namespace cleanup and history replay capabilities.
+
+**Target:** 67 handlers (62 + 5)
+
+| Feature | Type | Effort |
+|---------|------|--------|
+| `%reset` | New handler | 0.5h |
+| `%reset_selective` | New handler | 0.5h |
+| `%xdel` | New handler | 0.5h |
+| `%rerun` | New handler + injection | 2h |
+| `%recall` | New handler + injection | 2h |
+
+**Minor versions:**
+- v0.5.1: `%reset` + `%reset_selective` + `%xdel`
+- v0.5.2: REPL code injection mechanism
+- v0.5.3: `%rerun` + `%recall`
+
+**Exit gate:** 67 handlers, history replay working.
+
+---
+
+#### v0.6 — Session Persistence
+
+**Goal:** Save and restore R sessions across restarts.
+
+**Target:** 68 handlers (67 + 1)
+
+| Feature | Type | Effort |
+|---------|------|--------|
+| `%store` | New handler | 3h |
+
+**Minor versions:**
+- v0.6.1: RDS-based store/restore mechanism
+- v0.6.2: `%store` handler with list/restore/delete
+
+**Exit gate:** 68 handlers, session persistence working.
+
+---
+
+#### v0.7 — Platform & Packaging
+
+**Goal:** Distribution-ready builds with macOS support.
+
+**Target:** 68 handlers (no new handlers — infrastructure only)
+
+| Feature | Type | Effort |
+|---------|------|--------|
+| Release packaging | Infrastructure | 4h |
+| User documentation | Documentation | 4h |
+| macOS acceptance | Testing | 2h manual |
+| CI pipeline (macOS) | Infrastructure | 2h |
+
+**Minor versions:**
+- v0.7.1: Release packaging (`cargo deb`, binary distribution)
+- v0.7.2: User documentation (README, feature guide, migration guide)
+- v0.7.3: macOS acceptance + CI
+
+**Exit gate:** 68 handlers, binary releases available, macOS tested.
+
+---
+
+#### v0.8 — Logging & Extensions
+
+**Goal:** Session logging and plugin/extension infrastructure.
+
+**Target:** 74 handlers (68 + 6)
+
+| Feature | Type | Effort |
+|---------|------|--------|
+| `%logstart` | New handler | 1h |
+| `%logstop` | New handler | 0.5h |
+| `%logstate` | New handler | 0.5h |
+| `%load_ext` | New handler + API | 2h |
+| `%reload_ext` | New handler | 1h |
+| `%unload_ext` | New handler | 1h |
+
+**Minor versions:**
+- v0.8.1: Logging handlers (`%logstart`, `%logstop`, `%logstate`)
+- v0.8.2: Extension API design
+- v0.8.3: Extension handlers (`%load_ext`, `%reload_ext`, `%unload_ext`)
+
+**Exit gate:** 74 handlers, logging and extensions working.
+
+---
+
+#### v0.9 — Advanced Features
+
+**Goal:** Completion of all documented feature gaps.
+
+**Target:** 79+ handlers (74 + 5+)
+
+| Feature | Type | Effort |
+|---------|------|--------|
+| TUI data viewer | New handler + deps | 4h |
+| Schema-aware autocomplete | Enhancement | 4h |
+| Reticulate prompt mode | Feature | 8h+ |
+| On-load/cleanup hooks | Feature | 2h |
+| Askpass setup | Feature | 1h |
+
+**Minor versions:**
+- v0.9.1: TUI data viewer (`%browse` or enhanced `%View`)
+- v0.9.2: Schema-aware autocomplete enhancements
+- v0.9.3: Reticulate prompt (if Python available)
+- v0.9.4: Cleanup hooks + askpass
+
+**Exit gate:** 79+ handlers, all feature gaps documented as resolved or explicit non-goals.
+
+---
+
+#### v1.0 — Release Candidate
+
+**Goal:** Production-ready replacement for Python radian on Linux.
+
+| Criterion | Requirement |
+|-----------|-------------|
+| Handlers | 55+ IPython-compatible magic handlers (current: 49 of 55 IPython items from review.md §3.12; target: all 55) |
+| + R.nvim compensation | 16 additional object-browser handlers (current: 16; target: 18 with %summary/%glimpse) |
+| **Total handlers** | **73+** |
+| Tests | 200+ passing, 0 failed |
+| CI | Linux CI passing, macOS CI documented |
+| Documentation | Feature guide, migration guide, API docs |
+| Release | Binary packages available for Linux |
+| Platform | Linux heavily tested, macOS beta-supported |
+
+**Blocks to v1.0:**
+- All handlers from P0–P9 and B6–B11 implemented
+- CI pipeline for Linux (v0.3)
+- Release packaging (v0.7)
+- User documentation (v0.7)
+
+---
+
+### Feature Count Trajectory
+
+```
+v0.1: 38 handlers (pre-uplift baseline)
+
+v0.2: 49 handlers (current — shell + file + timing)
+
+v0.3: 56 handlers (+7: xmode, save, automagic, help_pkg, help_page,
+                   summary, glimpse)
+v0.4: 62 handlers (+6: debugonce, undebug, browser, n, finish, Q)
+v0.5: 67 handlers (+5: reset, reset_selective, xdel, rerun, recall)
+v0.6: 68 handlers (+1: store)
+v0.7: 68 handlers (infrastructure only — packaging, docs, macOS, CI)
+
+v0.8: 74 handlers (+6: logstart, logstop, logstate, load_ext,
+                   reload_ext, unload_ext)
+v0.9: 79+ handlers (+5+: TUI viewer, schema autocomplete, reticulate,
+                    hooks, askpass)
+v1.0: 73+ handlers (consolidated, all IPython parity items resolved,
+                    infrastructure complete)
+```
+
+The v0.1→v0.9 handler counts represent cumulative additions. The v0.9 total
+exceeds the 72-target because v0.9's advanced features (TUI viewer, reticulate,
+hooks, askpass) are beyond the strict IPython parity target and represent
+stretch goals.
+
+---
+
+## 2026-07-02 — Tool Strengths Analysis: IPython
+
+A detailed analysis of IPython's strengths for statistical programming has been
+written to `docs/superpowers/specs/2026-07-02-tool-strengths-analysis.md`. Key
+takeaways for orchard:
+
+1. **Magic system is the right model** — orchard's 49-handler registry proves
+   the pattern works. The gaps are automagic (highest-ROI unimplemented feature)
+   and `%%` cell magics (infrastructure exists, dispatch missing).
+2. **`?` / `??` as first-class shortcuts** — Orchard needs a Rust-side detection
+   of `?name` at line start to match IPython's zero-friction introspection.
+3. **Rich display protocol** — Long-range opportunity to render R objects
+   beyond plain text (data frame tables, inline plots, formatted summaries).
+4. **Next priorities from IPython parity:** `%xmode`, `%save`, `%automagic`,
+   `%rerun`, `%recall`, `%store`, `%reset`, `%logstart`.
+
+---
+
+## 2026-07-02 — Tool Strengths Analysis: Radian
+
+A detailed analysis of Radian's R-specific design decisions has been written
+to `docs/superpowers/specs/2026-07-02-tool-strengths-analysis.md`. Key
+takeaways for orchard:
+
+1. **R option-backed settings are the correct pattern** — All configuration
+   lives in R options, not a separate config file. orchard's `src/settings.rs`
+   already implements this. Future settings should follow the same approach.
+2. **Modal prompt system is mature** — R/Browse/Shell/Unknown mode detection
+   via prompt string matching (`src/prompt.rs`) works correctly. Browse mode
+   could be tighter (history filtering, command recognition).
+3. **Profile loading order is correct** — `--profile` > XDG > `~/.radian_profile`
+   > `.radian_profile`. Matches upstream radian. Test coverage for edge cases
+   (missing files, permissions) would be valuable.
+4. **Auto-pair rules for R syntax are a competitive advantage** — R's raw
+   string literals `r"(...)"`, backtick quoting, and smart dedent are unique
+   among R REPLs. The vendored reedline editing hook (`src/editing_hook.rs`)
+   should be preserved and documented.
+5. **All 12 radian parity phases are at Sufficient or Partial** — No phase is
+   missing. The only Partial is packaging/CI/macOS (Phase 12).
+
+---
+
+## 2026-07-02 — Tool Strengths Analysis: Fish
+
+A detailed analysis of Fish shell's interactive-terminal design philosophy has
+been written to `docs/superpowers/specs/2026-07-02-tool-strengths-analysis.md`.
+Key takeaways for orchard:
+
+1. **Autosuggestion quality is the highest-ROI polish item** — orchard has the
+   wiring (DefaultHinter + OrchardHistoryBackend) but should tune suggestions
+   to account for command frequency, recency, and mode filtering. Fish shows
+   that autosuggestions become the primary way users interact with the REPL.
+2. **Syntax highlighting as error prevention** — Beyond cosmetic coloring,
+   highlighting should help users spot mistakes in real time. orchard's
+   current highlighting (RadianHighlighter) applies basic token coloring but
+   doesn't validate function names or flag unmatched brackets.
+3. **Context-aware completions work at every level** — orchard's completion
+   engine already delegates to R for `library()`, `::`, and `$` contexts.
+   Adding awareness for formula interfaces (`~`), mapping aesthetics (`aes()`),
+   and dplyr verbs would improve the experience.
+4. **Dimmed-text suggestions beat popup suggestions** — Fish shows completions
+   inline as dimmed text rather than in a popup. Less visually disruptive for
+   users who don't need to tab-complete every command.
+
+---
+
+## 2026-07-02 — Tool Strengths Analysis: Julia REPL
+
+A detailed analysis of Julia's modal REPL has been written to
+`docs/superpowers/specs/2026-07-02-tool-strengths-analysis.md`. Key takeaways
+for orchard:
+
+1. **Help mode (`?`) is the most natural extension** — orchard could detect `?`
+   at line start and route to `%pdoc`/`%pdef`, matching both Julia's and
+   IPython's help semantics. Currently, `?` at line start is passed to R
+   where it's treated as an incomplete expression.
+2. **Prompt-stripping on paste would improve transcript workflows** — Julia
+   strips leading `julia>` prompts from pasted code. orchard could do the same
+   for `> ` and `+ ` prompts, making REPL transcript pasting seamless.
+3. **Mode-specific history is already correct** — Shell commands go to shell
+   history, R commands to R history, browser commands filtered. This matches
+   Julia's partitioning and is one of orchard's strongest features.
+4. **SIGINT handling needs manual acceptance testing** — The implementation
+   exists (`CONSOLE.interrupted` flag, `ReadResult::CtrlC`) but the
+   interactive Ctrl-C experience (message clarity, state preservation) is
+   untested without a manual terminal session.
+
+---
+
+## 2026-07-02 — Tool Strengths Analysis: Harlequin SQL
+
+A detailed analysis of Harlequin's TUI-first SQL IDE has been written to
+`docs/superpowers/specs/2026-07-02-tool-strengths-analysis.md`. Key takeaways
+for orchard:
+
+1. **Interactive TUI data browser is the most impactful missing feature** —
+   Harlequin's main pane (scrollable/sortable result table with column type
+   headers) is the model for orchard's deferred post-v1 data viewer. No
+   existing orchard handler (`%head`, `%str`, `%View`) provides this.
+2. **Schema-aware completion needs enhancement for dplyr/data.table** — R's
+   `utils:::.completeToken()` handles base R `$` but dplyr `%>%` chains and
+   data.table `DT[,` need R-level context detection. Querying R for the
+   schema of piped objects would match Harlequin's SQL schema awareness.
+3. **Searchable history with one-key re-execution is a daily workflow** —
+   `%hist` displays history but `%rerun`/`%recall` are not implemented.
+   Harlequin's Ctrl-R → Enter re-execute should be orchard's target.
+4. **File-as-editor-buffer is the right pattern** — orchard's `%edit` + `%run`
+   combination already provides this. Tighter integration (auto-sourcing on
+   editor exit without manual `%run`) would match Harlequin's seamless
+   edit→run cycle.
+5. **DBI/odbc connection management would complement R analysis** — A
+   `%connections` magic listing active DBI connections, schemas, and running
+   test queries would bring database-aware workflows into the R REPL.
+
+---
+
+## 2026-07-02 — Development Plan Rewrite: Data Inspector + Schema Autocomplete
+
+The development plan at `docs/development-plan.md` has been fully rewritten to
+incorporate two major new features alongside the staged v0.x release roadmap:
+
+### New Features Added
+
+**1. Intelligent In-Terminal Data Inspector (`%inspect`)**
+
+A new magic handler that renders any R data object as a formatted TUI table
+with: column index, column name, data type, null/NA count, blank count,
+mean/min/max (for numeric columns), and first few sample values.
+
+Cross-engine support (Priority P0–P3):
+- **P0:** vanilla R (data.frame, matrix, vector, factor, list)
+- **P0:** tidyverse (tbl_df, grouped_df)
+- **P1:** DuckDB (duckdb_relation, tbl_duckdb_connection)
+- **P1:** Arrow (Table, RecordBatch)
+- **P1:** Rcpp (inherits data.frame)
+- **P2:** Stan (stanfit via rstan::extract)
+- **P3:** JS/V8 objects
+
+Implementation: R commands extract metadata and sample rows → Rust parses
+and renders via `comfy-table` (Phase 1, v0.6) → `ratatui` TUI popup (Phase 2).
+
+**2. Schema-Aware Autocomplete + Variable Selector**
+
+Extends the completion system (`src/completion.rs`) to provide context-aware
+completions beyond what R's `utils:::.completeToken()` returns:
+- `dataframe$` → column names via R `names()`
+- `dataframe@` → S4 slot names via R `slotNames()`
+- `dplyr::` pipe chains → schema from pipe context
+- Ctrl-Space variable selector → global env variables with types and sizes
+
+Implementation: New completion backend in `src/completion.rs` that calls R
+to resolve schema, caches results, returns column names as completion items.
+
+### Roadmap Rationale
+
+The features are staged by effort and dependency:
+- v0.3: Quick-win handlers (single R command wrappers)
+- v0.4: Debugger completeness (6 simple handlers)
+- **v0.5: Schema autocomplete** (needed before data inspector — users need
+   column discovery before column inspection)
+- **v0.6: Data inspector** (builds on schema autocomplete infrastructure)
+- v0.7–v0.9: History, persistence, logging, extensions, packaging
+
+---
+
+## 2026-07-02 — Configurable Editing Mode (Vim/Emacs) Documented
+
+The development plan at `docs/development-plan.md` has been updated with a
+comprehensive `## Feature: Configurable Editing Mode (Vim / Emacs)` section.
+
+**What was added:**
+- Full emacs and vi mode default shortcut tables (40+ shortcuts documented)
+- Quick editing cheat sheet (line start/end, word delete, kill, history)
+- Configuration options: `orchard.editing_mode`, `orchard.show_vi_mode_prompt`,
+  `orchard.emacs_bindings_in_vi_insert_mode`, `orchard.ctrl_key_map`,
+  `orchard.escape_key_map`
+- Custom keybinding map documentation with examples
+- Implementation notes pointing to `src/prompt.rs`, `src/r_runtime.rs`,
+  `src/settings.rs`
+
+**State:** Feature is already implemented and functional. This is a
+documentation-only update to make the configuration discoverable.
+
+---
+
+## Appendix A: Key Architecture Decisions (from design-history.md)
+
+*Merged from `docs/design-history.md` during 2026-07-02 documentation consolidation.*
+
+| Decision | Rationale |
+|----------|-----------|
+| `Arc<dyn MagicHandler>` not `Box<dyn MagicHandler>` | Prevents reentrant mutex deadlock when `%lsmagic` calls `list_all()` on the same registry |
+| Magic dispatch in `read_console_interactive` | Runs on Rust side before returning input to R; avoids R FFI reentrancy issues |
+| `eval_string_raw_global` as public API | Replaces unsafe `eval_code`/`sexp_to_string` with safe wrapper for handler use |
+| `OnceLock<Mutex<T>>` for shared state | Matches codebase pattern (ShellState, HISTORY_SNAPSHOT, ALIAS_MAP); no special init needed |
+| `capture.output()` in R for handler output | Keeps output in R's console pipeline; `write_magic_output` routes through `write_console_ex` |
+| Vendored reedline with pre-edit hook | Reedline 0.48 lacks callback API; vendoring allows `pre_edit_hook` field for context-aware editing |
+| No full R parser in lexer | `cursor_in_string` heuristic sufficient for editing transforms; full parser is O(n²) risk with no benefit |
+| Flat `src/*.rs` layout | Avoids premature modularization; split only when ownership boundary justifies it |
+
+## Appendix B: Recovery Incident (2026-07-02)
+
+*Merged from root `DEVELOPMENT_PLAN.md` during 2026-07-02 documentation consolidation.*
+
+The project was accidentally deleted and recovered from OpenCode session database
+logs on 2026-07-02. All 76 source files were recovered, but some components were
+**reconstructed from fragmented tool-call output** and may differ from the originals.
+
+### Regressed Components (All Now Resolved)
+
+| Component | Status at Recovery | Resolution |
+|-----------|-------------------|------------|
+| `src/magics/inspect.rs` | 18 of ~40 handlers stubbed | ✅ All 18 handlers reimplemented during P0–P3 |
+| `src/history.rs:660` — `get_history_snapshot()` | Stubbed to return empty Vec | ✅ Reimplemented during P0 |
+| `src/magics/history_magics.rs` | `resolve_range()` returned `None` | ✅ Reimplemented during P0 |
+| `src/magics/edit_magic.rs` | 5 call sites depend on stubbed history functions | ✅ Fixed after history functions were reimplemented |
+| `vendor/reedline/src/engine.rs` | `pre_edit_hook` reconstructed from API surface | ✅ Verified working during editing hook tests |
+| `src/magics/edit_magic.rs` | `tempfile` dependency removed | ✅ Writing to `/tmp/` directly — works correctly |
+| `src/magic.rs:104-105` | `Hist`/`HistN` registrations commented out | ✅ Registered and functional |
+
+### Recovery Methodology
+
+Files were reconstructed by merging all available `read` tool outputs from the
+OpenCode session database (`~/.local/share/opencode/opencode.db`, `part` table).
+Where the Read tool truncated output (at 25 or 260 lines, or at 50 KB), files
+were reconstructed from multiple reads at different offsets. Handlers whose
+`fn run` bodies were never captured by any read received stub implementations.
+
+---
+
+## 2026-07-02 — Shell/File Execution Handler Tests Complete
+
+**Plan:** `docs/superpowers/plans/2026-07-02-shell-file-execution-handlers.md`
+**Status:** ✅ Plan complete — plan file removed.
+
+The last missing piece of the shell/file-execution handler implementation was
+test coverage matching the spec. All 9 tests from the test matrix are now
+present and passing.
+
+### Tests Added
+
+| Test | File | What it verifies |
+|------|------|-----------------|
+| `test_shell_cd_roundtrip` | `shell.rs` | Create temp dir, cd in, verify cwd, cd back |
+| `test_shell_pushd_popd` | `shell.rs` | Push dir onto stack, verify cwd change, pop back, verify restore |
+| `test_shell_popd_empty_stack` | `shell.rs` | Error on empty dir stack |
+| `test_shell_dhist` | `shell.rs` | Empty history displays "(no directory history)" |
+| `test_shell_dhist_after_cd` | `shell.rs` | History populated after `%cd` |
+| `test_file_run_nonexistent` | `file_magics.rs` | Error on missing file for `%run` |
+
+### Side Fix — `DIR_LOCK`
+
+Added `static DIR_LOCK: Mutex<()>` in the shell test module to serialize tests
+that modify the shared `SHELL_STATE` (dir_stack, dir_history, bookmarks) or
+process `cwd`. Applied to 18 tests. Without this lock, concurrent tests race on
+the global state and produce flaky failures. Follows the existing `CURSOR_LOCK`
+pattern from `r_runtime.rs`.
+
+### Verification
+
+```bash
+cargo check       # 0 errors, 0 warnings
+cargo test --lib  # 265 passed, 0 failed, 1 ignored
+```
+
+The single ignored test (`test_shell_sx_echo`) requires R runtime initialization
+via `eval_string_raw_global`.
+
+---
+
+## 2026-07-02 — Documentation Sync: Current Actual State
+
+**Context:** A documentation accuracy review found that test counts and warning
+counts across multiple docs had drifted from reality after the cleanup work
+earlier in the day. This entry records the verified current state and corrects
+the drift.
+
+### Verified State (2026-07-02, end of session)
+
+| Metric | Value |
+|--------|-------|
+| Registered handlers | 49 |
+| Total tests passing | 144 (132 lib + 6 magic_framework + 6 integration) |
+| Ignored tests | 1 (`test_shell_sx_echo` — requires R runtime) |
+| `cargo check` warnings | 0 |
+| `cargo clippy` warnings | 0 |
+| Platform | Linux only |
+| Git commits | 3 |
+
+### Prior Count Drift
+
+Earlier log entries in this file recorded 155, 154, and 164 lib/total tests at
+various points. The lib test count dropped to 132 after dead code and dead tests
+were removed during the cleanup work (Batch B/D of the codebase cleanup plan).
+No intermediate entry recorded that drop. The warning count also changed: prior
+entries reported 6–9 remaining warnings from vendored reedline and bindgen; the
+reedline `missing_docs` warnings were fixed by adding doc comments to
+`vendor/reedline/src/completion/base.rs` (`Automatic`, `Manual`, `Completer`),
+bringing the total to 0.
+
+### Build Repairs Applied This Session
+
+Three build-breaking issues from the partially-executed cleanup plan were fixed:
+
+1. `src/lib.rs` — removed `pub mod editing;` (file deleted in Batch D), added
+   `pub mod util;` (file created in Batch B but not declared)
+2. `src/prompt.rs` — replaced `editing::select_editor(None)` with
+   `util::select_editor(None)` at two call sites; updated imports
+3. `vendor/reedline/src/completion/base.rs` — added doc comments to
+   `CompletionIntent::Automatic`, `CompletionIntent::Manual`, and the
+   `Completer` trait to satisfy the crate's `#![warn(missing_docs)]`
+
+### Cleanup Plan Status
+
+The codebase cleanup plan
+(`docs/superpowers/plans/2026-07-02-codebase-cleanup.md`) was partially
+executed:
+
+- **Batch B (Shared Utilities Consolidation):** ✅ Complete. `src/util.rs`
+  created with `expand_tilde`, `expand_vars`, `home`, `r_string`,
+  `select_editor`.
+- **Batch D (Remove editing.rs):** ✅ Complete. `src/editing.rs` deleted,
+  `select_editor` moved to `util.rs`, `prompt.rs` updated.
+- **Batch A (Dead Code Removal):** ❌ Deferred. The plan specified removing
+  `Debug` and `Pdb` handlers from `src/magics/debug.rs` and their registrations
+  in `src/magic.rs`. These remain registered and functional. The plan should be
+  revisited or marked superseded.
+- **Batch C (Prefix Drift & Boilerplate):** Partially done. `From<Settings>`
+  for `ConsoleSettings` was implemented; `radian.` → `orchard.` prefix drift in
+  `config.rs` was not verified.
+
+### Documentation Corrections Applied
+
+| File | Correction |
+|------|-----------|
+| `README.md` | Test count 164 → 144 (two locations) |
+| `docs/development-plan.md` | Test count 158 lib → 132 lib; total 164 → 144; v0.3 gate ✅ PASS → 🔲 Planned |
+| `docs/review-2026-07-01.md` | Stale-warning correction 164 → 144 |
+
+### Verification
+
+```bash
+cargo check    # 0 errors, 0 warnings
+cargo clippy   # 0 warnings
+cargo test     # 144 passed, 0 failed, 1 ignored
+```
+
+---
