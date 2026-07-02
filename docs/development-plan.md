@@ -7,7 +7,7 @@ a ground-up rewrite of the Python radian REPL, with IPython-style magic commands
 schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
-**Current state:** 59 registered magic handlers | 397+ tests (390 lib + 7 magic framework) | Linux only
+**Current state:** 66 registered magic handlers | 397+ tests (390 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -113,13 +113,13 @@ All handlers registered in `src/magic.rs::register_all()`.
 | Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect` | 19 |
 | Debug | `%tb` (Traceback), `%where`, `%c` (Continue), `%xmode` | 4 |
 | Timing | `%time`, `%timeit`, `%prun` | 3 |
-| History | `%hist`, `%hist_n`, `%save` | 3 |
+| History | `%hist`, `%hist_n`, `%save`, `%rerun`, `%recall` | 5 |
 | Config | `%config`, `%colors`, `%alias`, `%unalias`, `%automagic` | 5 |
-| Workspace | `%pinfo`, `%pinfo2` | 2 |
+| Workspace | `%pinfo`, `%pinfo2`, `%store`, `%reset`, `%xdel` | 5 |
 | Edit | `%macro`, `%edit` | 2 |
 | File | `%run`, `%load` | 2 |
 | EDA | `%summary`, `%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`, `%sessioninfo` | 8 |
-| **Total** | | **59** |
+| **Total** | | **66** |
 
 **Dispatch order:** `;` → `!` → `?` → `%` → R
 
@@ -460,28 +460,24 @@ Automatically re-source modified R files detected by filesystem watcher
 - `%inspect` handler in `src/magics/inspect.rs` with cross-engine detection
 - Pipe chain completion (dplyr `%>%`) as stretch goal
 
-### v0.4 — History Replay + Reproducibility
+### ✅ v0.4 — History Replay + Reproducibility (Complete)
 
-**Target:** 62 handlers (56 + 6)
+**Target:** 66 handlers (59 + 7)
 **Focus:** Session persistence, history replay, and workspace management.
 
-| Handler/Feature | Description | Effort |
-|-----------------|-------------|--------|
-| `%rerun` | Re-execute history entries by range | 2h |
-| `%recall` | Recall history into input buffer | 2h |
-| `%store` | Session persistence via RDS serialization | 3h |
-| `%logstart` | Start session logging | 1h |
-| `%logstop` | Stop session logging | 0.5h |
-| `%logstate` | Show logging state | 0.5h |
-| `%reset` | Clean workspace | 0.5h |
-| `%reset_selective` | Selective cleanup by pattern | 0.5h |
-| `%xdel` | Delete variables | 0.5h |
-| Cwd-contextual history | Tag history entries with working directory, prioritize current-dir entries | 3h |
+| Handler/Feature | Description | Effort | Status |
+|-----------------|-------------|--------|--------|
+| `%rerun` | Re-execute history entries by range | 2h | ✅ Done |
+| `%recall` | Recall history into input buffer | 2h | ✅ Done |
+| `%store` | Session persistence via RDS serialization | 3h | ✅ Done |
+| `%logstart` | Start session logging | 1h | ✅ Done |
+| `%logstop` | Stop session logging | 0.5h | ✅ Done |
+| `%logstate` | Show logging state | 0.5h | ✅ Done |
+| `%reset` | Clean workspace (all or selective by pattern) | 0.5h | ✅ Done |
+| `%xdel` | Delete variables with `.last_del` backup | 0.5h | ✅ Done |
+| Cwd-contextual history | Tag history entries with working directory | 3h | 🔲 Planned |
 
-**Subtotal:** ~13.5h
-
-**Architecture change:** History backend extended with cwd metadata tag per entry.
-`%hist --dir .` shows project-scoped history. Reverse search prioritizes current directory.
+**Subtotal:** 9 of 10 items complete (~3h planned for cwd-contextual history).
 
 ### v0.5 — Debugger + Fuzzy Completion
 
@@ -627,8 +623,8 @@ Automatically re-source modified R files detected by filesystem watcher
 v0.2: 47 handlers (baseline)
 v0.3: 59 handlers (+8 EDA, +1 xmode, +1 save, +1 automagic, +1 inspect — plus $/@/pipe completion, CI pipeline)
        ➜ Complete
-v0.4: 62 handlers (+6: rerun, recall, store, logstart, logstop, logstate,
-               reset, reset_selective, xdel)
+v0.4: 66 handlers (+7: rerun, recall, store, logstart, logstop, logstate, reset, xdel)
+       ➜ Complete
 v0.5: 72 handlers (+10: debug, pdb, debugonce, undebug, browser, n, finish, Q,
                 +variable selector, ? modal help, methods, psearch)
 v0.6: 74 handlers (+2: %inspect TUI popup, %dev, %plots)

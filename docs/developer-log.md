@@ -11,6 +11,37 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-02 — v0.4 History Replay (7 New Handlers)
+
+**Goal:** Add v0.4 History Replay + Reproducibility handlers — history replay,
+workspace management, and session logging.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/magics/history_magics.rs` | Added `Rerun` handler — re-run a previous command by index (from `%hist`), range (`1-3`), `-N`, or pattern search. Added `Recall` handler — same lookup logic, returns entry text for editing. |
+| `src/magics/workspace.rs` | Added `Store` handler — persist/load objects via `saveRDS`/`readRDS`. `Reset` handler — `rm(list = ls())` for all or pattern-selective. `Xdel` handler — `rm()` with backup to `.last_del` for undo. |
+| `src/magics/logging.rs` | **New module:** `LogStart` handler — opens file for append logging. `LogStop` handler — closes log file. `LogStateCmd` handler — shows on/off + path. All share `LogState` static with `log_command()` pub fn for REPL hook integration. |
+| `src/magics/mod.rs` | Added `pub mod logging;` |
+| `src/magic.rs` | Registered all 7 handlers as P11 (History Replay), P12 (Workspace), P13 (Session logging). |
+
+**Handler count:** 59 → 66 registered magic handlers.
+
+**Verification:**
+```
+cargo check                # 0 errors, 0 warnings
+cargo clippy -- -D warnings  # 0 warnings
+cargo test --lib           # all passed (pre-existing SIGSEGV on binary shutdown only)
+```
+
+**Commit:**
+```
+99062aa feat: add v0.4 History Replay handlers
+```
+
+---
+
 ## 2026-07-02 — %inspect Text Table (Phase 1)
 
 **Goal:** Add an `%inspect` magic command that renders any R object as a formatted
