@@ -4,7 +4,7 @@
 commands, an intelligent in-terminal data inspector, and schema-aware autocomplete.
 Replaces upstream Python radian on Linux (macOS pending acceptance).
 
-**Current state:** 55 registered magic handlers | 389 tests (382 lib + 7 magic framework) | Linux only
+**Current state:** 58 registered magic handlers | 397 tests (390 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -108,15 +108,15 @@ All handlers registered in `src/magic.rs::register_all()`.
 | Framework | `%lsmagic`, `%magic` | 2 |
 | Shell | `%pwd`, `%env`, `%bookmark`, `%cd`, `%ls`, `%sx`, `%pushd`, `%popd`, `%dhist` | 9 |
 | Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile` | 18 |
-| Debug | `%tb` (Traceback), `%where`, `%c` (Continue) | 3 |
+| Debug | `%tb` (Traceback), `%where`, `%c` (Continue), `%xmode` | 4 |
 | Timing | `%time`, `%timeit`, `%prun` | 3 |
-| History | `%hist`, `%hist_n` | 2 |
-| Config | `%config`, `%colors`, `%alias`, `%unalias` | 4 |
+| History | `%hist`, `%hist_n`, `%save` | 3 |
+| Config | `%config`, `%colors`, `%alias`, `%unalias`, `%automagic` | 5 |
 | Workspace | `%pinfo`, `%pinfo2` | 2 |
 | Edit | `%macro`, `%edit` | 2 |
 | File | `%run`, `%load` | 2 |
 | EDA | `%summary`, `%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`, `%sessioninfo` | 8 |
-| **Total** | | **55** |
+| **Total** | | **58** |
 
 **Dispatch order:** `;` → `!` → `?` → `%` → R
 
@@ -430,7 +430,7 @@ Automatically re-source modified R files detected by filesystem watcher
 
 ### v0.3 — EDA Core + Editor Loop
 
-**Target:** 56 handlers (55 current + 1 new)
+**Target:** 58 handlers (current)
 **Focus:** Daily-use features for statistical computing and exploratory data analysis.
 Low effort, high benefit.
 
@@ -444,14 +444,14 @@ Low effort, high benefit.
 | `%freq` | Frequency tables via `janitor::tabyl()` | 0.5h | ✅ Done |
 | `%compare` | Diff two objects via `waldo::compare()` | 0.5h | ✅ Done |
 | `%sessioninfo` | Reproducibility metadata via `sessioninfo::session_info()` | 0.5h | ✅ Done |
-| `%xmode` | Traceback verbosity control | 0.5h | 🔲 Planned |
-| `%save` | Save history to file | 1h | 🔲 Planned |
-| `%automagic` | Toggle `%` prefix on magic commands | 1h | 🔲 Planned |
+| `%xmode` | Traceback verbosity control | 0.5h | ✅ Done |
+| `%save` | Save history to file | 1h | ✅ Done |
+| `%automagic` | Toggle `%` prefix on magic commands | 1h | ✅ Done |
 | `$` / `@` column + pipe completion | R `names(obj)` after `obj$`, `[[`, `%>%` | 2h | ✅ Done |
 | `%inspect` text table | comfy-table renderer for any R object (Phase 1) | 6h | 🔲 Planned |
 | CI pipeline (Linux) | GitHub Actions | 1h | ✅ Done |
 
-**Subtotal:** ~8.5h remaining (of 15.5h)
+**Subtotal:** ~6h remaining (%inspect only)
 
 **Architecture changes:**
 - Schema-aware completion backend in `src/completion.rs` calling R to resolve object schema
@@ -623,9 +623,8 @@ Low effort, high benefit.
 
 ```
 v0.2: 47 handlers (baseline)
-v0.3: 56 handlers (+8 EDA: summary, glimpse, describe, missing, corr, freq, compare, sessioninfo;
-       +1: xmode — plus $/@/pipe completion, CI pipeline, %inspect)
-       ➜ 55 done, 1 remaining
+v0.3: 58 handlers (+8 EDA, +1 xmode, +1 save, +1 automagic — plus $/@/pipe completion, CI pipeline)
+       ➜ 58 done, %inspect remaining
 v0.4: 62 handlers (+6: rerun, recall, store, logstart, logstop, logstate,
                reset, reset_selective, xdel)
 v0.5: 72 handlers (+10: debug, pdb, debugonce, undebug, browser, n, finish, Q,
