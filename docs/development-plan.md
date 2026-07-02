@@ -18,7 +18,7 @@ reedline/readline → r_runtime::read_console_interactive
   ├── ; shell mode (persistent or one-shot)
   ├── ! inline shell execution
   ├── ?/?? object introspection
-  ├── % magic dispatch (58 handlers)
+  ├── % magic dispatch (66 handlers)
   ├── + tab: Schema-aware autocomplete (14 backends) + variable selector ✅
   └── R evaluation (via R C API)
 
@@ -35,7 +35,7 @@ Data Inspector (v0.3):
 **Key files:**
 - `src/r_runtime.rs` — REPL loop, dispatch, R callbacks
 - `src/magic.rs` — registry, MagicHandler trait, MagicLine
-- `src/magics/*.rs` — handler modules (58 handlers)
+- `src/magics/*.rs` — handler modules (66 handlers)
 - `src/history.rs` — history + snapshot
 - `src/prompt.rs` — reedline session, completer, highlighter
 - `src/shell.rs` — shell commands, env lock
