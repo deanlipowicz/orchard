@@ -1,4 +1,21 @@
-# radian Python-to-Rust Port Plan
+# Python-to-Rust Port Plan — Historical Reference
+
+**What this is:** The original port plan from the Python radian → Rust rewrite.
+This is a **historical document** written before the recovery incident. It
+documents the original phase structure, file mapping, and design approach used
+to create the initial Rust implementation. Handler counts and test numbers in
+this document no longer match the current codebase.
+
+**For the current state:** See `docs/development-plan.md` (active roadmap) and
+`docs/developer-log.md` (development history).
+
+**Note (2026-07-02):** The upstream Python reference files at
+`third_party/radian-upstream/radian/` have been removed. All functionality has
+been ported to Rust. The LaTeX symbol data was converted from
+`latex/latex_symbols.py` to `src/data/latex_symbols.tsv` (tab-separated format,
+embedded at compile time).
+
+---
 
 ## 1. Objective
 
@@ -25,7 +42,7 @@ minimal embedded R REPL, then add radian behavior in layers.
 Source reviewed:
 
 - URL: `https://github.com/randy3k/radian/tree/master/radian`
-- Downloaded reference path: `third_party/radian-upstream/radian`
+- Downloaded reference path: `third_party/radian-upstream/radian` (removed 2026-07-02 — all functionality ported)
 - Upstream commit: `a7cb91a99b2361404f3baab031cc18b935353660`
 
 The upstream package is small, but the behavior is spread across several
@@ -44,13 +61,14 @@ callback and prompt-toolkit extension points. The important source files are:
 | `lexer.py` and `document.py` | R highlighting and `cursor_in_string` guard | Port a lightweight scanner; avoid full R parser in v1 |
 | `rutils.py` | Profile loading, installed packages, cleanup, Windows UTF-8, hooks | Port helper-by-helper as needed |
 | `shell.py` | `;` shell mode and `cd` handling | Port directly |
-| `latex/*` | LaTeX symbol completion data | Convert data into Rust static table or generated file |
+| `latex/*` | LaTeX symbol completion data | Converted to `src/data/latex_symbols.tsv` (1983 entries, tab-separated). Embedded at compile time via `include_str!` in `src/completion.rs`. |
 
 ## 2.1 Current Review, 2026-06-29
 
 This review compares the current Rust tree against the upstream Python checkout
-at `third_party/radian-upstream/radian`. It is a status overlay for the phase
-plan below, not a replacement for the original target behavior.
+at `third_party/radian-upstream/radian` (reference checkout removed 2026-07-02).
+It is a status overlay for the phase plan below, not a replacement for the
+original target behavior.
 
 Review basis:
 

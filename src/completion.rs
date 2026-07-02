@@ -11,8 +11,7 @@ pub struct Completion {
     pub display: String,
 }
 
-const LATEX_SYMBOLS: &str =
-    include_str!("../third_party/radian-upstream/radian/latex/latex_symbols.py");
+const LATEX_SYMBOLS: &str = include_str!("data/latex_symbols.tsv");
 
 pub fn latex_completions(prefix: &str) -> Vec<Completion> {
     let symbols = latex_symbols();
@@ -232,43 +231,13 @@ fn parse_latex_symbols() -> Vec<(String, String)> {
         .lines()
         .filter_map(|line| {
             let line = line.trim();
-            if !line.starts_with("(\"") {
+            if line.is_empty() {
                 return None;
             }
-            let (command, value) = line
-                .trim_start_matches("(\"")
-                .trim_end_matches(',')
-                .trim_end_matches(')')
-                .split_once("\", u\"")?;
-            Some((
-                python_unescape(command),
-                python_unescape(value.trim_end_matches('"')),
-            ))
+            let (command, value) = line.split_once('\t')?;
+            Some((command.to_string(), value.to_string()))
         })
         .collect()
-}
-
-fn python_unescape(input: &str) -> String {
-    let mut out = String::new();
-    let mut chars = input.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('\\') => out.push('\\'),
-            Some('"') => out.push('"'),
-            Some('n') => out.push('\n'),
-            Some('t') => out.push('\t'),
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
-            }
-            None => out.push('\\'),
-        }
-    }
-    out
 }
 
 fn package_call_tail(text: &str, call: &str) -> bool {
