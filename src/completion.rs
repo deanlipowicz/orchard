@@ -643,10 +643,9 @@ fn magic_arg_kind(name: &str) -> Option<MagicArgKind> {
         // Directory-based: complete directory paths
         "cd" | "pushd" | "popd" | "bookmark" => Some(MagicArgKind::Dir),
         // Variable-based: complete global variable names
-        "rm" | "clear" | "who" | "whos" | "who_ls" | "objects"
-        | "str" | "head" | "summary" | "glimpse" | "skim"
-        | "dim" | "names" | "plot" | "tidy" | "View"
-        | "pdoc" | "pdef" | "psource" | "inspect" => Some(MagicArgKind::Variable),
+        "rm" | "clear" | "who" | "whos" | "who_ls" | "objects" | "str" | "head" | "summary"
+        | "glimpse" | "skim" | "dim" | "names" | "plot" | "tidy" | "View" | "pdoc" | "pdef"
+        | "psource" | "inspect" => Some(MagicArgKind::Variable),
         _ => None,
     }
 }
@@ -712,8 +711,7 @@ fn magic_path_completions(
 ) -> Vec<Completion> {
     let arg = &line[arg_start..cursor.min(line.len())];
     let (dir, prefix, quoted) = split_path_word(arg);
-    let expanded =
-        PathBuf::from(crate::util::expand_vars(&crate::util::expand_tilde(&dir)));
+    let expanded = PathBuf::from(crate::util::expand_vars(&crate::util::expand_tilde(&dir)));
     let read_dir = if expanded.as_os_str().is_empty() {
         PathBuf::from(".")
     } else {
@@ -775,6 +773,114 @@ fn variable_name_completions(prefix: &str) -> Vec<Completion> {
             display: name,
         })
         .collect()
+}
+
+// ── Function Argument Completion ──────────────────────────────────────────
+
+/// Detect if the cursor is inside a function call `fname(...)`.
+///
+/// Returns `(function_expression, span_start)` where `span_start` is the
+/// byte position right after the opening `(`. The function expression
+/// includes the namespace prefix if present (e.g. `stats::lm`).
+pub fn function_call_context(line: &str, cursor: usize) -> Option<(String, usize)> {
+    let text = &line[..cursor.min(line.len())];
+    let bytes = text.as_bytes();
+
+    // Walk backwards tracking paren depth to find the innermost unmatched `(`
+    let mut depth = 0i32;
+    for i in (0..bytes.len()).rev() {
+        match bytes[i] {
+            b')' => depth += 1,
+            b'(' => {
+                if depth == 0 {
+                    // Found the opening paren of the current call.
+                    // Extract the function name/expression before it.
+                    let before_paren = &text[..i];
+                    let fn_start = before_paren
+                        .rfind(|c: char| !is_name_char(c) && c != ':')
+                        .map_or(0, |i| i + 1);
+                    let fn_expr = &text[fn_start..i];
+                    if fn_expr.is_empty() {
+                        return None;
+                    }
+                    // R identifiers must start with a letter or dot
+                    let first = fn_expr.chars().next()?;
+                    if !first.is_ascii_alphabetic() && first != '.' {
+                        return None;
+                    }
+                    return Some((fn_expr.to_string(), i + 1));
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+/// Generate argument-name completions for a function call.
+///
+/// Calls R `formals()` to get argument names and default values for the
+/// function at the cursor position. Returns `(completions, span_start)` when
+/// inside a function call, or `None` otherwise.
+pub fn function_arg_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, usize)> {
+    let (fn_expr, paren_start) = function_call_context(line, cursor)?;
+
+    // Build argument list from what's already typed after the `(`
+    let after_paren = &line[paren_start..cursor.min(line.len())];
+    let prefix = after_paren.trim();
+
+    let r_code = format!(
+        concat!(
+            "local({{ fmls <- tryCatch(formals({}), error = function(e) NULL);",
+            " if (is.null(fmls) || length(fmls) == 0) return('');",
+            " nms <- names(fmls);",
+            " lines <- vapply(seq_along(fmls), function(i) {{",
+            "   nm <- nms[i];",
+            "   def <- fmls[[i]];",
+            "   default_str <- if (is.symbol(def) && as.character(def) == '') ''",
+            "     else paste0(' = ', deparse(def, width.cutoff = 60L)[1]);",
+            "   paste0(nm, default_str)",
+            " }}, character(1));",
+            " paste(lines, collapse = '\\n') }})"
+        ),
+        fn_expr
+    );
+
+    let result = crate::r_runtime::with_suppressed_stderr(|| {
+        crate::r_runtime::eval_string_raw_global(&r_code)
+    })
+    .unwrap_or_default();
+
+    let items: Vec<Completion> = result
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let (arg_name, default_str) = line.split_once(" = ").unwrap_or((line, ""));
+            if !fuzzy_match(arg_name, prefix) {
+                return None;
+            }
+            let display = if default_str.is_empty() {
+                arg_name.to_string()
+            } else {
+                format!("{} = {}", arg_name, default_str)
+            };
+            Some(Completion {
+                replacement: format!("{} = ", arg_name),
+                display,
+            })
+        })
+        .collect();
+
+    if items.is_empty() {
+        return None;
+    }
+
+    Some((items, paren_start))
 }
 
 #[cfg(test)]
@@ -1070,8 +1176,61 @@ mod tests {
         for name in &["cd", "pushd", "popd"] {
             assert_eq!(magic_arg_kind(name), Some(MagicArgKind::Dir));
         }
-        for name in &["rm", "clear", "who", "str", "head", "summary", "glimpse", "dim", "names", "inspect"] {
+        for name in &[
+            "rm", "clear", "who", "str", "head", "summary", "glimpse", "dim", "names", "inspect",
+        ] {
             assert_eq!(magic_arg_kind(name), Some(MagicArgKind::Variable));
         }
+    }
+
+    // ── Function call context tests ───────────────────────────────────────
+
+    #[test]
+    fn detects_function_call_simple() {
+        let (name, start) = function_call_context("mean(", 5).unwrap();
+        assert_eq!(name, "mean");
+        assert_eq!(start, 5);
+    }
+
+    #[test]
+    fn detects_function_call_with_arg() {
+        let (name, start) = function_call_context("mean(x, ", 8).unwrap();
+        assert_eq!(name, "mean");
+        assert_eq!(start, 5);
+    }
+
+    #[test]
+    fn detects_function_call_namespaced() {
+        // Cursor inside the parens (after a comma and space)
+        let (name, start) = function_call_context("stats::lm(y ~ x, ", 18).unwrap();
+        assert_eq!(name, "stats::lm");
+        assert_eq!(start, 10);
+    }
+
+    #[test]
+    fn detects_function_call_nested_inner() {
+        // Cursor right after the inner call's "("
+        let (name, start) = function_call_context("mean(x, sd(", 11).unwrap();
+        assert_eq!(name, "sd");
+        assert_eq!(start, 11);
+    }
+
+    #[test]
+    fn detects_function_call_nested_outer() {
+        // Cursor after the outer call's second comma
+        let (name, start) = function_call_context("mean(x, sd(y), ", 15).unwrap();
+        assert_eq!(name, "mean");
+        assert_eq!(start, 5);
+    }
+
+    #[test]
+    fn rejects_non_function_context() {
+        assert!(function_call_context("x + 1", 5).is_none());
+        assert!(function_call_context("", 0).is_none());
+    }
+
+    #[test]
+    fn rejects_anonymous_function() {
+        assert!(function_call_context("(function(x) x)(5)", 18).is_none());
     }
 }

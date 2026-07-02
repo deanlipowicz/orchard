@@ -306,6 +306,12 @@ impl Completer for OrchardCompleter {
             return suggestions(magic_items, span);
         }
 
+        // Function argument completion — formals() via R
+        if let Some((arg_items, arg_span)) = completion::function_arg_completions(line, pos) {
+            let span = Span::new(arg_span, pos.min(line.len()));
+            return suggestions(arg_items, span);
+        }
+
         // Variable selector for manual completion (Ctrl-Space / Tab)
         if intent == CompletionIntent::Manual {
             let (var_start, var_end) = completion::package_span(line, pos);
