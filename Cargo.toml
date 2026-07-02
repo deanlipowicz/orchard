@@ -2,17 +2,17 @@
 name = "orchard"
 version = "0.1.0"
 edition = "2024"
-description = "Modern R REPL with IPython-style magic commands, written in Rust"
+description = "R without the weight — a terminal-native R REPL with IPython magic commands, zsh-grade autocomplete, and shell integration. Pair it with neovim, emacs, or micro in a tmux session."
 license = "MIT OR Apache-2.0"
 authors = ["orchard contributors"]
 repository = "https://github.com/deanlipowicz/orchard"
 homepage = "https://github.com/deanlipowicz/orchard"
-keywords = ["R", "REPL", "terminal", "statistical-computing"]
+keywords = ["R", "REPL", "terminal", "statistical-computing", "data-science", "shell"]
 categories = ["command-line-utilities", "development-tools"]
 
 [package.metadata.deb]
 maintainer = "orchard contributors <orchard@example.com>"
-extended-description = "Orchard is a modern R REPL written in Rust. It provides syntax highlighting, autosuggest, multiline editing, shell integration, and IPython-style magic commands."
+extended-description = "Orchard is a terminal-native R REPL written in Rust, pairing with your editor for a lightweight, git-friendly workflow. Features IPython-style magic commands, 14-backend autocomplete (R objects, LaTeX symbols, filesystem paths, fuzzy matching, spellcheck), zsh-style autosuggest, syntax highlighting, multiline editing, built-in shell mode, and 30+ configurable settings via R's options()."
 depends = "r-base (>= 4.0)"
 section = "devel"
 priority = "optional"
