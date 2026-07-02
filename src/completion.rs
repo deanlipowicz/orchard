@@ -456,11 +456,20 @@ fn resolve_schema(obj_name: &str, op: char) -> Vec<String> {
             crate::util::r_string(obj_name)
         )
     } else {
+        // For `$`: detect R6 and refClass objects for correct method/field listing.
+        // R6 objects need ls(envir=obj) while refClass and data.frames use names().
         format!(
             concat!(
                 "local({{ obj <- tryCatch(get({}, envir = .GlobalEnv), error = function(e) NULL);",
                 " if (is.null(obj)) return('');",
-                " nms <- tryCatch(names(obj), error = function(e) NULL);",
+                " if (inherits(obj, 'R6')) {{",
+                "   nms <- tryCatch(ls(envir = obj), error = function(e) NULL);",
+                "   if (!is.null(nms)) nms <- nms[!grepl('^\\.__', nms)];",
+                " }} else if (methods::is(obj, 'refClass')) {{",
+                "   nms <- tryCatch(names(obj), error = function(e) NULL);",
+                " }} else {{",
+                "   nms <- tryCatch(names(obj), error = function(e) NULL);",
+                " }};",
                 " if (is.null(nms) || length(nms) == 0) return('');",
                 " paste(nms, collapse = '\\n') }})"
             ),
