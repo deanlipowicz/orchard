@@ -300,6 +300,12 @@ impl Completer for OrchardCompleter {
             return suggestions(pipe_items, span);
         }
 
+        // Magic command argument completion (%run, %cd, %rm, etc.)
+        if let Some((magic_items, magic_span)) = completion::magic_completions(line, pos) {
+            let span = Span::new(magic_span, pos.min(line.len()));
+            return suggestions(magic_items, span);
+        }
+
         // Variable selector for manual completion (Ctrl-Space / Tab)
         if intent == CompletionIntent::Manual {
             let (var_start, var_end) = completion::package_span(line, pos);

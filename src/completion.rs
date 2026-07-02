@@ -170,7 +170,7 @@ pub fn completions_from_raw(raw: &str, spaces_around_equals: bool) -> Vec<Comple
         .collect()
 }
 
-fn split_path_word(command: &str) -> (String, String, bool) {
+pub(crate) fn split_path_word(command: &str) -> (String, String, bool) {
     let word = command.split_whitespace().last().unwrap_or("");
     let quoted = word.starts_with('"') || word.starts_with('\'');
     let word = word.trim_matches(['"', '\'']);
@@ -624,6 +624,159 @@ pub fn variable_selector_completions(prefix: &str) -> Vec<Completion> {
         .collect()
 }
 
+/// The kind of argument a magic command expects for completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MagicArgKind {
+    /// File paths (optionally filtered to .R/.r).
+    File,
+    /// Directory paths only.
+    Dir,
+    /// Variable names from the global environment.
+    Variable,
+}
+
+/// Map a magic command name to its expected argument completion kind.
+fn magic_arg_kind(name: &str) -> Option<MagicArgKind> {
+    match name {
+        // File-based: complete file paths
+        "run" | "load" | "edit" | "save" | "pfile" => Some(MagicArgKind::File),
+        // Directory-based: complete directory paths
+        "cd" | "pushd" | "popd" | "bookmark" => Some(MagicArgKind::Dir),
+        // Variable-based: complete global variable names
+        "rm" | "clear" | "who" | "whos" | "who_ls" | "objects"
+        | "str" | "head" | "summary" | "glimpse" | "skim"
+        | "dim" | "names" | "plot" | "tidy" | "View"
+        | "pdoc" | "pdef" | "psource" | "inspect" => Some(MagicArgKind::Variable),
+        _ => None,
+    }
+}
+
+/// Detect if the cursor is inside a magic command argument position.
+///
+/// Returns `(magic_name, arg_start, kind)` where `arg_start` is the byte
+/// position of the first argument character after the magic name and space.
+pub fn magic_context(line: &str, cursor: usize) -> Option<(String, usize, MagicArgKind)> {
+    let text = &line[..cursor.min(line.len())];
+
+    // Line must start with % (after optional leading whitespace)
+    let trimmed = text.trim_start();
+    if !trimmed.starts_with('%') {
+        return None;
+    }
+
+    // Extract magic name: characters between % and the first space
+    let after_pct = &trimmed[1..];
+    let space_pos = after_pct.find(char::is_whitespace)?;
+    let magic_name = &after_pct[..space_pos];
+
+    if magic_name.is_empty() {
+        return None;
+    }
+
+    let kind = magic_arg_kind(magic_name)?;
+
+    // arg_start = leading_offset + 1 (for %) + name_len + 1 (for space)
+    let leading_offset = text.len() - trimmed.len();
+    let arg_start = leading_offset + 1 + space_pos + 1;
+
+    Some((magic_name.to_string(), arg_start, kind))
+}
+
+/// Generate completions for the argument of a magic command.
+pub fn magic_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, usize)> {
+    let (_magic_name, arg_start, kind) = magic_context(line, cursor)?;
+
+    let completions = match kind {
+        MagicArgKind::File => magic_path_completions(arg_start, line, cursor, false, true),
+        MagicArgKind::Dir => magic_path_completions(arg_start, line, cursor, true, false),
+        MagicArgKind::Variable => {
+            let prefix = &line[arg_start..cursor.min(line.len())];
+            variable_name_completions(prefix)
+        }
+    };
+
+    if completions.is_empty() {
+        return None;
+    }
+
+    Some((completions, arg_start))
+}
+
+/// Complete file/directory paths for magic command arguments.
+fn magic_path_completions(
+    arg_start: usize,
+    line: &str,
+    cursor: usize,
+    dirs_only: bool,
+    r_only: bool,
+) -> Vec<Completion> {
+    let arg = &line[arg_start..cursor.min(line.len())];
+    let (dir, prefix, quoted) = split_path_word(arg);
+    let expanded =
+        PathBuf::from(crate::util::expand_vars(&crate::util::expand_tilde(&dir)));
+    let read_dir = if expanded.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        expanded
+    };
+
+    let mut out = Vec::new();
+    if let Ok(entries) = fs::read_dir(&read_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&prefix) {
+                continue;
+            }
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if dirs_only && !is_dir {
+                continue;
+            }
+            if r_only && !is_dir && !name.ends_with(".R") && !name.ends_with(".r") {
+                continue;
+            }
+            let mut replacement = name;
+            if is_dir {
+                replacement.push('/');
+            }
+            if !quoted {
+                replacement = replacement.replace(' ', "\\ ");
+            }
+            out.push(Completion {
+                display: replacement.clone(),
+                replacement,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.display.cmp(&b.display));
+    out
+}
+
+/// Generate simple variable-name completions (no type/size metadata).
+fn variable_name_completions(prefix: &str) -> Vec<Completion> {
+    let r_code = r#"
+        local({
+            vars <- ls(envir = .GlobalEnv)
+            if (length(vars) == 0) return("")
+            paste(vars, collapse = "\n")
+        })
+    "#;
+
+    let result = crate::r_runtime::with_suppressed_stderr(|| {
+        crate::r_runtime::eval_string_raw_global(r_code)
+    })
+    .unwrap_or_default();
+
+    result
+        .lines()
+        .map(String::from)
+        .filter(|name| fuzzy_match(name, prefix))
+        .map(|name| Completion {
+            replacement: name.clone(),
+            display: name,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -857,5 +1010,68 @@ mod tests {
     fn fuzzy_match_underscore_and_dots() {
         assert!(fuzzy_match("my_column_name", "mcn"));
         assert!(fuzzy_match("my.column.name", "mcn"));
+    }
+
+    // ── Magic context tests ──────────────────────────────────────────────
+
+    #[test]
+    fn detects_magic_context_run() {
+        let (name, start, kind) = magic_context("%run /path/to/file", 18).unwrap();
+        assert_eq!(name, "run");
+        assert_eq!(start, 5);
+        assert_eq!(kind, MagicArgKind::File);
+    }
+
+    #[test]
+    fn detects_magic_context_cd() {
+        let (name, start, kind) = magic_context("%cd mydir", 9).unwrap();
+        assert_eq!(name, "cd");
+        assert_eq!(start, 4);
+        assert_eq!(kind, MagicArgKind::Dir);
+    }
+
+    #[test]
+    fn detects_magic_context_rm() {
+        let (name, start, kind) = magic_context("%rm mtcars", 10).unwrap();
+        assert_eq!(name, "rm");
+        assert_eq!(start, 4);
+        assert_eq!(kind, MagicArgKind::Variable);
+    }
+
+    #[test]
+    fn detects_magic_context_with_leading_space() {
+        let (name, start, kind) = magic_context("  %run file.R", 15).unwrap();
+        assert_eq!(name, "run");
+        assert_eq!(start, 7);
+        assert_eq!(kind, MagicArgKind::File);
+    }
+
+    #[test]
+    fn rejects_magic_without_args() {
+        // Cursor still in the magic name (no space yet)
+        assert!(magic_context("%run", 4).is_none());
+    }
+
+    #[test]
+    fn rejects_unknown_magic() {
+        assert!(magic_context("%nonexistent arg", 16).is_none());
+    }
+
+    #[test]
+    fn rejects_non_magic_line() {
+        assert!(magic_context("mean(x)", 7).is_none());
+    }
+
+    #[test]
+    fn magic_arg_kind_covers_all_common_magics() {
+        for name in &["run", "load", "edit", "save", "pfile"] {
+            assert_eq!(magic_arg_kind(name), Some(MagicArgKind::File));
+        }
+        for name in &["cd", "pushd", "popd"] {
+            assert_eq!(magic_arg_kind(name), Some(MagicArgKind::Dir));
+        }
+        for name in &["rm", "clear", "who", "str", "head", "summary", "glimpse", "dim", "names", "inspect"] {
+            assert_eq!(magic_arg_kind(name), Some(MagicArgKind::Variable));
+        }
     }
 }
