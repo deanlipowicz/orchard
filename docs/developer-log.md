@@ -11,6 +11,45 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-02 — EDA Magic Handlers (8 New: %summary, %glimpse, %describe, %missing, %corr, %freq, %compare, %sessioninfo)
+
+**Goal:** Add 8 exploratory data analysis magic commands for v0.3 EDA Core milestone.
+Each handler wraps a well-known R function and follows the same thin-wrapper pattern
+as existing inspect/timing handlers.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/magics/eda.rs` | **New module:** 8 `MagicHandler` impls — Summary (`base::summary()`), Glimpse (`dplyr::glimpse()`), Describe (`skimr::skim()`), Missing (`naniar::miss_summary()`), Corr (`cor()` with pairwise complete obs), Freq (`janitor::tabyl()`), Compare (`waldo::compare()` with max_diffs=20), SessionInfo (`sessioninfo::session_info()`). Optional-package handlers use `eval_with_pkg_check()` for clear error messages. |
+| `src/magics/mod.rs` | Added `pub mod eda;` |
+| `src/magic.rs` | Added P9 — EDA section with all 8 registrations in `register_all()` |
+
+**13 new tests:** 8 registry-presence checks, 2 empty-args validation tests, 1 parse-recognition test (all 8 names), 1 dispatch-variant test (confirms `Output::Text` path), 1 sessioninfo args test.
+
+**Test count:** 382 lib tests (up from 356), 7 magic framework. Total: 389 tests.
+
+**Handler count:** 47 → 55 registered magic handlers.
+
+**Verification:**
+```
+cargo check            # 0 errors, 0 warnings
+cargo clippy -- -D warnings  # 0 warnings
+cargo test --lib       # 382 passed, 0 failed, 1 ignored
+cargo test --test magic_framework  # 7 passed
+```
+
+**Plan:** `docs/superpowers/plans/2026-07-02-eda-handlers.md`
+**Spec:** `docs/superpowers/specs/2026-07-02-eda-handlers-design.md`
+
+**Commits:**
+```
+2529141 feat: add 8 EDA magic handlers (%summary, %glimpse, %describe, %missing, %corr, %freq, %compare, %sessioninfo)
+4c4bfd4 docs: add EDA handlers design spec and implementation plan
+```
+
+---
+
 ## 2026-07-02 — Formula ~ Completion for Modeling Functions
 
 **Goal:** Complete column names from the `data =` argument when the user types
