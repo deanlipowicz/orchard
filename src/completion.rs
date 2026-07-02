@@ -16,6 +16,8 @@ pub struct Completion {
 }
 
 const LATEX_SYMBOLS: &str = include_str!("data/latex_symbols.tsv");
+const DATASET_SCHEMAS: &str = include_str!("data/dataset_schemas.tsv");
+const PACKAGE_SYMBOLS: &str = include_str!("data/package_symbols.tsv");
 
 pub fn latex_completions(prefix: &str) -> Vec<Completion> {
     let symbols = latex_symbols();
@@ -474,6 +476,121 @@ pub fn extract_bracket_context(line: &str, cursor: usize) -> Option<(String, usi
     }
 }
 
+/// Look up column names for a known dataset from static TSV (no R call).
+fn static_dataset_columns(obj_name: &str) -> Option<Vec<String>> {
+    static CACHE: OnceLock<HashMap<&'static str, Vec<&'static str>>> = OnceLock::new();
+    let map = CACHE.get_or_init(|| {
+        let mut m: HashMap<&str, Vec<&str>> = HashMap::new();
+        for line in DATASET_SCHEMAS.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut parts = line.splitn(3, '\t');
+            if let (Some(dataset), Some(col), _) = (parts.next(), parts.next(), parts.next()) {
+                m.entry(dataset).or_default().push(col);
+            }
+        }
+        m
+    });
+    map.get(obj_name)
+        .map(|cols| cols.iter().map(|s| s.to_string()).collect())
+}
+
+/// Look up exported function names + argument signatures for a package from static TSV.
+fn static_package_fn_map() -> &'static HashMap<&'static str, Vec<(&'static str, &'static str)>> {
+    static CACHE: OnceLock<HashMap<&'static str, Vec<(&'static str, &'static str)>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut m: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
+        for line in PACKAGE_SYMBOLS.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut parts = line.splitn(3, '\t');
+            if let (Some(pkg), Some(fn_name), Some(args)) =
+                (parts.next(), parts.next(), parts.next())
+            {
+                m.entry(pkg).or_default().push((fn_name, args));
+            }
+        }
+        m
+    })
+}
+
+/// Detect if the cursor is in a `pkg::fun` completion context.
+///
+/// Returns `(package_name, span_start)` where `span_start` is the byte
+/// position right after `::` where the function-name completion should begin.
+pub fn namespace_context(line: &str, cursor: usize) -> Option<(String, usize)> {
+    let text = &line[..cursor.min(line.len())];
+
+    // Find the last `::` before cursor (but not `:::`)
+    if let Some(pos) = text.rfind("::") {
+        // Ensure it's not `:::`
+        if pos >= 2 && text.as_bytes()[pos - 1] == b':' {
+            return None;
+        }
+        // Must be preceded by a valid package name char
+        if pos == 0 || !is_name_char(text.as_bytes()[pos - 1] as char) {
+            return None;
+        }
+        // Extract package name before `::`
+        let before = &text[..pos];
+        let pkg_start = before
+            .rfind(|c: char| !is_name_char(c))
+            .map_or(0, |i| i + 1);
+        let pkg_name = &before[pkg_start..];
+        if pkg_name.is_empty() {
+            return None;
+        }
+        // R identifier check
+        let first = pkg_name.chars().next()?;
+        if !first.is_ascii_alphabetic() && first != '.' {
+            return None;
+        }
+        Some((pkg_name.to_string(), pos + 2))
+    } else {
+        None
+    }
+}
+
+/// Generate function-name completions for a `pkg::` namespace context.
+pub fn namespace_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, usize)> {
+    let (pkg_name, span_start) = namespace_context(line, cursor)?;
+
+    let prefix = &line[span_start..cursor.min(line.len())];
+    let fn_map = static_package_fn_map();
+    let fns = fn_map.get(pkg_name.as_str())?;
+
+    // Build candidate names, then rank them
+    let names: Vec<String> = fns.iter().map(|(name, _)| name.to_string()).collect();
+    let ranked = rank_completions(&names, prefix);
+
+    // Rebuild completions with argument signatures in display
+    let fn_args: HashMap<&str, &str> = fns.iter().map(|(n, a)| (*n, *a)).collect();
+    let items: Vec<Completion> = ranked
+        .into_iter()
+        .map(|c| {
+            let args = fn_args.get(c.replacement.as_str()).unwrap_or(&"");
+            Completion {
+                replacement: c.replacement,
+                display: if args.is_empty() {
+                    c.display
+                } else {
+                    format!("{}({})", c.display, args)
+                },
+            }
+        })
+        .collect();
+
+    if items.is_empty() {
+        return None;
+    }
+    Some((items, span_start))
+}
+
 /// Resolve column or slot names for an R object by calling R.
 fn resolve_schema(obj_name: &str, op: char) -> Vec<String> {
     let cache_key = format!("{}:{}", obj_name, op);
@@ -486,6 +603,21 @@ fn resolve_schema(obj_name: &str, op: char) -> Vec<String> {
         {
             return entry.names.clone();
         }
+    }
+
+    // Fast path: static dataset schema — no R FFI needed
+    if op == '$'
+        && let Some(cols) = static_dataset_columns(obj_name)
+    {
+        let mut cache = schema_cache().lock().unwrap();
+        cache.insert(
+            cache_key,
+            SchemaEntry {
+                names: cols.clone(),
+                fetched_at: Instant::now(),
+            },
+        );
+        return cols;
     }
 
     let r_code = if op == '@' {

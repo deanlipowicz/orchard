@@ -306,6 +306,12 @@ impl Completer for OrchardCompleter {
             return suggestions(magic_items, span);
         }
 
+        // Namespace function completion (pkg::fun) — static TSV with args
+        if let Some((ns_items, ns_span)) = completion::namespace_completions(line, pos) {
+            let span = Span::new(ns_span, pos.min(line.len()));
+            return suggestions(ns_items, span);
+        }
+
         // Function argument completion — formals() via R
         if let Some((arg_items, arg_span)) = completion::function_arg_completions(line, pos) {
             let span = Span::new(arg_span, pos.min(line.len()));

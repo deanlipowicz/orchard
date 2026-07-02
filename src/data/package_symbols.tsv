@@ -1,0 +1,286 @@
+# Commonly used R package exports — static completion for pkg::fun
+# Format: package_name\tfunction_name\targument_signature
+# dplyr
+dplyr	filter	.data, ..., .by, .preserve
+dplyr	mutate	.data, ..., .by, .keep
+dplyr	select	.data, ..., .drop
+dplyr	summarise	.data, ..., .by, .groups
+dplyr	summarize	.data, ..., .by, .groups
+dplyr	arrange	.data, ..., .by
+dplyr	rename	.data, ..., .by
+dplyr	group_by	.data, ..., .add, .drop
+dplyr	ungroup	x, ...
+dplyr	distinct	.data, ..., .keep_all
+dplyr	count	x, ..., wt, sort, name
+dplyr	tally	x, wt, sort, name
+dplyr	slice	.data, ..., .by, .preserve
+dplyr	slice_head	.data, ..., n, prop, by
+dplyr	slice_tail	.data, ..., n, prop, by
+dplyr	slice_sample	.data, ..., n, prop, weight_by, replace, by
+dplyr	join	(generic — use inner_join, left_join, etc.)
+dplyr	inner_join	x, y, by, copy, suffix, keep, ...
+dplyr	left_join	x, y, by, copy, suffix, keep, ...
+dplyr	right_join	x, y, by, copy, suffix, keep, ...
+dplyr	full_join	x, y, by, copy, suffix, keep, ...
+dplyr	semi_join	x, y, by, copy, ...
+dplyr	anti_join	x, y, by, copy, ...
+dplyr	bind_rows	..., .id
+dplyr	bind_cols	..., .name_repair
+dplyr	pull	.data, var, name, ...
+dplyr	relocate	.data, ..., .before, .after
+dplyr	across	.cols, .fns, ..., .names, .unpack
+dplyr	if_else	condition, true, false, missing
+dplyr	case_when	...
+dplyr	recode	x, ..., .default, .missing
+dplyr	mutate_across	.cols, .fns, ..., .names
+# tidyr
+tidyr	pivot_longer	data, cols, names_to, values_to, values_drop_na
+tidyr	pivot_wider	data, names_from, values_from, id_cols, values_fill, values_fn
+tidyr	separate	data, col, into, sep, remove, convert
+tidyr	unite	data, col, ..., sep, remove, na.rm
+tidyr	drop_na	data, ...
+tidyr	fill	data, ..., .direction
+tidyr	replace_na	data, replace
+tidyr	complete	data, ..., fill, explicit
+tidyr	expand	data, ..., nesting, name_repair
+tidyr	nesting	...
+tidyr	crossing	...
+# ggplot2
+ggplot2	ggplot	data, mapping, ..., environment
+ggplot2	aes	x, y, ..., colour, fill, linetype, shape, size, alpha, group
+ggplot2	geom_point	mapping, data, ..., na.rm, show.legend
+ggplot2	geom_line	mapping, data, ..., na.rm, show.legend
+ggplot2	geom_bar	mapping, data, ..., stat, position, ..., na.rm
+ggplot2	geom_histogram	mapping, data, ..., bins, binwidth, na.rm, show.legend
+ggplot2	geom_boxplot	mapping, data, ..., na.rm, show.legend, outlier.colour
+ggplot2	geom_smooth	mapping, data, ..., method, formula, se, na.rm, show.legend
+ggplot2	geom_col	mapping, data, ..., width, na.rm, show.legend
+ggplot2	geom_tile	mapping, data, ..., na.rm, show.legend
+ggplot2	geom_text	mapping, data, ..., label, hjust, vjust, na.rm
+ggplot2	geom_label	mapping, data, ..., label, hjust, vjust, na.rm, label.size
+ggplot2	geom_errorbar	mapping, data, ..., na.rm, show.legend
+ggplot2	geom_ribbon	mapping, data, ..., na.rm, show.legend
+ggplot2	geom_density	mapping, data, ..., na.rm, show.legend
+ggplot2	facet_wrap	facets, nrow, ncol, scales, shrink, labeller, as.table, dir
+ggplot2	facet_grid	rows, cols, scales, space, shrink, labeller, as.table, margins
+ggplot2	labs	... — x, y, title, subtitle, caption, tag, fill, colour, etc.
+ggplot2	xlab	label
+ggplot2	ylab	label
+ggplot2	ggtitle	label, subtitle
+ggplot2	scale_x_continuous	..., name, breaks, labels, limits, trans
+ggplot2	scale_y_continuous	..., name, breaks, labels, limits, trans
+ggplot2	scale_x_discrete	..., name, breaks, labels, limits, na.translate
+ggplot2	scale_y_discrete	..., name, breaks, labels, limits, na.translate
+ggplot2	scale_fill_hue	..., h, c, l, h.start, direction, na.value
+ggplot2	scale_colour_hue	..., h, c, l, h.start, direction, na.value
+ggplot2	scale_fill_brewer	..., type, palette, direction, na.value
+ggplot2	scale_colour_brewer	..., type, palette, direction, na.value
+ggplot2	scale_fill_viridis_d	..., alpha, begin, end, direction, option, na.value
+ggplot2	scale_colour_viridis_d	..., alpha, begin, end, direction, option, na.value
+ggplot2	coord_cartesian	xlim, ylim, ..., expand, default, clip
+ggplot2	coord_flip	..., xlim, ylim, expand, clip
+ggplot2	theme	..., line, rect, text, title, axis, legend, panel, plot, strip
+ggplot2	theme_minimal	..., base_size, base_family, base_line_size, base_rect_size
+ggplot2	theme_bw	..., base_size, base_family, base_line_size, base_rect_size
+ggplot2	theme_classic	..., base_size, base_family, base_line_size, base_rect_size
+ggplot2	theme_dark	..., base_size, base_family, base_line_size, base_rect_size
+ggplot2	guides	... — colour, fill, shape, size, linetype, alpha
+ggplot2	ggsave	filename, plot, device, path, scale, width, height, units, dpi, limitsize
+# purrr
+purrr	map	.x, .f, ..., .progress
+purrr	map2	.x, .y, .f, ..., .progress
+purrr	pmap	.l, .f, ..., .progress
+purrr	walk	.x, .f, ..., .progress
+purrr	keep	.x, .p, ...
+purrr	discard	.x, .p, ...
+purrr	reduce	.x, .f, ..., .init
+purrr	accumulate	.x, .f, ..., .init
+purrr	flatten	x, ...
+purrr	compact	.x, .p, ...
+purrr	transpose	.l, .names, .allow_null, .names_repair, ...
+purrr	pluck	.x, ..., .default
+purrr	assign_in	.x, where, value
+purrr	modify	.x, .f, ..., .by
+purrr	compose	..., .dir
+# stringr
+stringr	str_detect	string, pattern, negate
+stringr	str_replace	string, pattern, replacement
+stringr	str_replace_all	string, pattern, replacement
+stringr	str_extract	string, pattern, group
+stringr	str_extract_all	string, pattern, simplify
+stringr	str_match	string, pattern, group
+stringr	str_split	string, pattern, n, simplify
+stringr	str_to_lower	string, locale
+stringr	str_to_upper	string, locale
+stringr	str_trim	string, side
+stringr	str_pad	string, width, side, pad, use_width
+stringr	str_c	..., sep, collapse, na.rm
+stringr	str_sub	string, start, end
+stringr	str_length	string
+stringr	str_count	string, pattern
+stringr	str_detect	string, pattern, negate
+stringr	str_starts	string, pattern, negate
+stringr	str_ends	string, pattern, negate
+stringr	str_squish	string
+stringr	str_wrap	string, width, indent, exdent, whitespace_only
+# lubridate
+lubridate	ymd	..., quiet, tz, locale, truncated
+lubridate	ymd_hms	..., tz, locale, truncated
+lubridate	mdy	..., quiet, tz, locale, truncated
+lubridate	dmy	..., quiet, tz, locale, truncated
+lubridate	as_date	x, tz, ...
+lubridate	as_datetime	x, tz, ...
+lubridate	date_decimal	decimal, tz
+lubridate	year	x, label, abbr
+lubridate	month	x, label, abbr
+lubridate	day	x
+lubridate	hour	x
+lubridate	minute	x
+lubridate	second	x
+lubridate	wday	x, label, abbr, week_start, locale
+lubridate	week	x
+lubridate	floor_date	x, unit, week_start
+lubridate	ceiling_date	x, unit, week_start
+lubridate	round_date	x, unit, week_start
+lubridate	interval	start, end, tzone, ...
+lubridate	days	x
+lubridate	weeks	x
+lubridate	minutes	x
+lubridate	seconds	x
+lubridate	parse_date_time	x, orders, tz, truncated, quiet, locale, exact
+# data.table
+data.table	data.table	..., keep.rownames, check.names, key
+data.table	setDT	x, keep.rownames, key
+data.table	setDF	x, rownames
+data.table	as.data.table	x, keep.rownames, key, ...
+data.table	fread	input, sep, dec, colClasses, select, drop, nrows, na.strings, ...
+data.table	fwrite	x, file, sep, dec, col.names, row.names, na, quote, ...
+data.table	melt	data, id.vars, measure.vars, variable.name, value.name, na.rm
+data.table	dcast	data, formula, fun.aggregate, value.var, ...
+data.table	merge	x, y, by, by.x, by.y, all, all.x, all.y, sort, ...
+data.table	setkey	x, ...
+data.table	setkeyv	x, cols, verbose
+data.table	key	x
+data.table	datatable.rows	(use DT[i, j, by])
+data.table	unique	x, by, fromLast, ...
+data.table	copy	x
+data.table	setcolorder	x, neworder, before, after
+# forcats
+forcats	fct_recode	.f, ...
+forcats	fct_relevel	.f, ..., after
+forcats	fct_infreq	.f, ordered
+forcats	fct_inorder	.f, ordered
+forcats	fct_lump	.f, n, prop, w, other_level
+forcats	fct_collapse	.f, ..., other_level
+forcats	fct_reorder	.f, .x, .fun, ..., .desc
+forcats	fct_drop	.f, only
+forcats	fct_expand	.f, ...
+forcats	fct_count	f, sort, prop
+forcats	fct_other	.f, keep, drop, other_level
+forcats	fct_rev	.f
+forcats	fct_shuffle	.f
+forcats	fct_unique	.f
+forcats	fct_c	f, ...
+forcats	fct_cross	..., sep, keep_empty
+# readr
+readr	read_csv	file, col_names, col_types, locale, na, comment, trim_ws, skip, n_max, progress, show_col_types
+readr	read_tsv	file, col_names, col_types, locale, na, comment, trim_ws, skip, n_max, progress, show_col_types
+readr	read_delim	file, delim, col_names, col_types, locale, na, comment, trim_ws, skip, n_max, progress, show_col_types
+readr	read_rds	file, refhook
+readr	write_csv	x, file, na, append, col_names, quote
+readr	write_tsv	x, file, na, append, col_names, quote
+readr	write_rds	x, file, ..., version
+readr	parse_number	x, na, locale, ...
+readr	parse_integer	x, na, locale, ...
+readr	parse_double	x, na, locale, ...
+readr	parse_character	x, na, locale, ...
+readr	parse_factor	x, levels, ordered, na, locale, ...
+readr	parse_date	x, format, na, locale, ...
+readr	parse_datetime	x, format, na, locale, ...
+readr	type_convert	df, col_types, na, trim_ws, locale
+readr	spec	df
+readr	cols	..., .default, .skip
+readr	col_integer	...
+readr	col_double	...
+readr	col_character	...
+readr	col_factor	levels, ordered, include_na
+readr	col_date	format
+readr	col_datetime	format
+readr	col_logical	...
+readr	col_skip	...
+readr	col_number	...
+# base R (most useful)
+base	c	..., recursive
+base	list	...
+base	data.frame	..., row.names, check.rows, check.names, fix.empty.names, stringsAsFactors
+base	matrix	data, nrow, ncol, byrow, dimnames
+base	length	x
+base	names	x
+base	class	x
+base	typeof	x
+base	dim	x
+base	nrow	x
+base	ncol	x
+base	sapply	X, FUN, ..., simplify, USE.NAMES
+base	lapply	X, FUN, ...
+base	vapply	X, FUN, FUN.VALUE, ..., USE.NAMES
+base	apply	X, MARGIN, FUN, ..., simplify
+base	which	x, arr.ind, useNames
+base	paste	..., sep, collapse, recycle0
+base	paste0	..., collapse, recycle0
+base	sprintf	fmt, ...
+base	unique	x, incomparables, fromLast, nmax, ...
+base	duplicated	x, incomparables, fromLast, nmax, ...
+base	table	..., exclude, useNA, dnn, deparse.level
+base	aggregate	x, by, FUN, ..., simplify, drop
+base	merge	x, y, by, by.x, by.y, all, all.x, all.y, sort, suffixes, incomparables, ...
+base	subset	x, subset, select, drop
+base	transform	`_data`, ...
+base	with	data, expr, ...
+base	within	data, expr, ...
+base	lm	formula, data, subset, weights, na.action, method, model, x, y, qr, singular.ok, contrasts, offset, ...
+base	glm	formula, family, data, weights, subset, na.action, start, etastart, mustart, offset, control, model, method, x, y, singular.ok, contrasts, ...
+base	summary	object, ..., digits, quantile.type, distribution
+base	print	x, ..., digits, quote, na.print, print.gap, right, max, ...
+base	plot	x, y, ..., type, main, sub, xlab, ylab, col, lty, pch, cex, lwd, xlim, ylim
+base	lines	x, y, ..., type, col, lty, lwd, pch
+base	points	x, y, ..., type, col, pch, cex, lwd
+base	abline	a, b, h, v, reg, coef, ..., untf, col, lty, lwd
+base	hist	x, breaks, freq, probability, include.lowest, right, density, angle, border, main, xlab, ylab, xlim, ylim, col
+base	source	file, ..., local, echo, print.eval, verbose, prompt.echo, max.deparse.length, encoding, keep.source, keep.parse.data
+base	library	package, help, pos, lib.loc, character.only, logical.return, warn.conflicts, quietly, verbose, mask.ok
+base	require	package, lib.loc, quietly, warn.conflicts, character.only
+base	install.packages	pkgs, lib, repos, contriburl, method, destdir, dependencies, type, ask, INSTALL_opts, ...
+base	options	...
+base	getwd		
+base	setwd	dir
+base	exists	x, where, envir, frame, mode, inherits
+base	get	x, pos, envir, mode, inherits
+base	assign	x, value, pos, envir, inherits, immediate
+base	rm	..., list, pos, envir, inherits
+base	ls	name, pos, envir, all.names, pattern, sorted
+base	dir	path, pattern, all.files, full.names, recursive, ignore.case, no..
+base	list.files	path, pattern, all.files, full.names, recursive, ignore.case, no..
+base	save	..., list, file, ascii, version, envir, compress, compression_level, eval.promises, precheck
+base	load	file, envir, verbose
+base	str	object, ..., max.level, vec.len, give.attr, give.length, width, nest.lev, indent.str, comp.str
+base	cat	..., file, sep, fill, labels, append
+base	message	..., domain, appendLF
+base	warning	..., call., immediate., noBreaks., domain
+base	stop	..., call., domain
+base	try	expr, silent, outFile
+base	tryCatch	expr, ..., finally
+base	stopifnot	..., exprs, local, call.
+base	missing	x
+base	nargs	
+base	NA	(length = 0) — logical NA constant
+base	NULL	
+base	TRUE	
+base	FALSE	
+base	Inf	
+base	NaN	
+base	pi	
+base	letters	built-in constant: a–z
+base	LETTERS	built-in constant: A–Z
+base	month.name	built-in constant: January–December
+base	month.abb	built-in constant: Jan–Dec
