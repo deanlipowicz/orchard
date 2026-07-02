@@ -1,4 +1,5 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
+use std::sync::{Mutex, OnceLock};
 
 fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
     let text = crate::r_runtime::eval_string_raw_global(code).map_err(|e| magic::MagicError {
@@ -12,6 +13,75 @@ fn eval_r_silent(code: &str) -> Result<(), magic::MagicError> {
         message: e.to_string(),
     })?;
     Ok(())
+}
+
+/// Xmode verbosity levels.
+pub const XMODE_PLAIN: &str = "plain";
+pub const XMODE_CONTEXT: &str = "context";
+pub const XMODE_VERBOSE: &str = "verbose";
+pub const XMODE_DEFAULT: &str = XMODE_CONTEXT;
+
+const VALID_XMODES: &[&str] = &[XMODE_PLAIN, XMODE_CONTEXT, XMODE_VERBOSE];
+
+/// The xmode state — controls traceback verbosity for `%tb`.
+static XMODE: OnceLock<Mutex<String>> = OnceLock::new();
+
+fn xmode_state() -> &'static Mutex<String> {
+    XMODE.get_or_init(|| Mutex::new(XMODE_DEFAULT.to_string()))
+}
+
+/// Set the xmode level. Returns an error if the mode is invalid.
+pub fn set_xmode(mode: &str) -> Result<(), String> {
+    let m = mode.trim().to_lowercase();
+    if !VALID_XMODES.contains(&m.as_str()) {
+        return Err(format!(
+            "Unknown xmode '{}'. Valid modes: {}",
+            mode,
+            VALID_XMODES.join(", ")
+        ));
+    }
+    *xmode_state().lock().unwrap() = m.clone();
+    Ok(())
+}
+
+/// Get the current xmode level.
+pub fn get_xmode() -> String {
+    xmode_state().lock().unwrap().clone()
+}
+
+/// Return the R traceback expression adjusted for the current xmode.
+fn traceback_code() -> String {
+    match get_xmode().as_str() {
+        XMODE_PLAIN => "cat(conditionMessage(attr(last.warning, 'condition')))\n".to_string(),
+        XMODE_VERBOSE => "traceback(max.lines = NULL)".to_string(),
+        _ => "traceback()".to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %xmode — Control traceback verbosity
+// ---------------------------------------------------------------------------
+pub struct Xmode;
+
+impl MagicHandler for Xmode {
+    fn name(&self) -> &'static str {
+        "xmode"
+    }
+    fn description(&self) -> &'static str {
+        "Control traceback verbosity: plain | context | verbose"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let args = line.args.trim();
+        if args.is_empty() {
+            return Ok(Output::Text(format!(
+                "Current xmode: {}\nValid modes: {}\n",
+                get_xmode(),
+                VALID_XMODES.join(", ")
+            )));
+        }
+        set_xmode(args).map_err(|e| magic::MagicError { message: e })?;
+        Ok(Output::Text(format!("Xmode set to '{}'.\n", get_xmode())))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +120,7 @@ impl MagicHandler for Continue {
 }
 
 // ---------------------------------------------------------------------------
-// %tb — Print the last traceback
+// %tb — Print the last traceback (respects xmode)
 // ---------------------------------------------------------------------------
 pub struct Traceback;
 
@@ -59,9 +129,98 @@ impl MagicHandler for Traceback {
         "tb"
     }
     fn description(&self) -> &'static str {
-        "Print the last traceback"
+        "Print the last traceback (use %xmode to set verbosity)"
     }
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_r_captured("traceback()")
+        eval_r_captured(&traceback_code())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn xmode_default_is_context() {
+        // Reset to default for this test
+        *xmode_state().lock().unwrap() = XMODE_DEFAULT.to_string();
+        assert_eq!(get_xmode(), XMODE_CONTEXT);
+    }
+
+    #[test]
+    fn xmode_set_valid_modes() {
+        for mode in VALID_XMODES {
+            assert!(set_xmode(mode).is_ok());
+            assert_eq!(get_xmode(), *mode);
+        }
+    }
+
+    #[test]
+    fn xmode_invalid_mode_returns_error() {
+        set_xmode(XMODE_CONTEXT).ok();
+        assert!(set_xmode("invalid").is_err());
+        // State should be unchanged
+        assert_eq!(get_xmode(), XMODE_CONTEXT);
+    }
+
+    #[test]
+    fn xmode_is_case_insensitive() {
+        assert!(set_xmode("VERBOSE").is_ok());
+        assert_eq!(get_xmode(), XMODE_VERBOSE);
+    }
+
+    #[test]
+    fn traceback_code_changes_with_xmode() {
+        set_xmode(XMODE_CONTEXT).unwrap();
+        let ctx_code = traceback_code();
+        assert_eq!(ctx_code, "traceback()");
+
+        set_xmode(XMODE_VERBOSE).unwrap();
+        let verb_code = traceback_code();
+        assert!(verb_code.contains("max.lines = NULL"));
+    }
+
+    #[test]
+    fn xmode_handler_shows_current_without_args() {
+        let handler = Xmode;
+        let line = MagicLine {
+            name: "xmode".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line).unwrap();
+        match result {
+            Output::Text(t) => assert!(t.contains("Current xmode")),
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn xmode_handler_sets_mode_with_args() {
+        let handler = Xmode;
+        let line = MagicLine {
+            name: "xmode".into(),
+            args: "plain".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line).unwrap();
+        match result {
+            Output::Text(t) => assert!(t.contains("Xmode set to")),
+            _ => panic!("expected Text"),
+        }
+        assert_eq!(get_xmode(), XMODE_PLAIN);
+        // Reset for other tests
+        set_xmode(XMODE_DEFAULT).ok();
+    }
+
+    #[test]
+    fn xmode_invalid_via_handler_returns_error() {
+        let handler = Xmode;
+        let line = MagicLine {
+            name: "xmode".into(),
+            args: "bogus".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
     }
 }

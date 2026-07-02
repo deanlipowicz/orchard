@@ -182,6 +182,46 @@ impl MagicHandler for Colors {
     }
 }
 
+// ---------------------------------------------------------------------------
+// %automagic — Toggle automatic magic detection
+// ---------------------------------------------------------------------------
+pub struct Automagic;
+
+impl MagicHandler for Automagic {
+    fn name(&self) -> &'static str {
+        "automagic"
+    }
+    fn description(&self) -> &'static str {
+        "Toggle automatic magic detection on/off"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let args = line.args.trim().to_lowercase();
+        match args.as_str() {
+            "" => {
+                // Toggle
+                let current = crate::r_runtime::get_automagic();
+                let new_val = !current;
+                crate::r_runtime::set_automagic(new_val);
+                Ok(Output::Text(format!(
+                    "Automagic: {}\n",
+                    if new_val { "on" } else { "off" }
+                )))
+            }
+            "on" | "1" | "true" => {
+                crate::r_runtime::set_automagic(true);
+                Ok(Output::Text("Automagic: on\n".into()))
+            }
+            "off" | "0" | "false" => {
+                crate::r_runtime::set_automagic(false);
+                Ok(Output::Text("Automagic: off\n".into()))
+            }
+            _ => Err(magic::MagicError {
+                message: "Usage: %automagic [on|off]".into(),
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

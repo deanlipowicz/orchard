@@ -355,6 +355,22 @@ pub fn set_suppress_stderr(suppress: bool) {
     SUPPRESS_STDERR.store(suppress, Ordering::SeqCst);
 }
 
+/// Toggle automagic on or off. When enabled, registered magic names can be
+/// used without the `%` prefix (unless followed by `(` which indicates an R
+/// function call).
+pub fn set_automagic(enabled: bool) {
+    let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
+    let mut state = console.lock().unwrap();
+    state.settings.automagic = enabled;
+}
+
+/// Get the current automagic setting.
+pub fn get_automagic() -> bool {
+    let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
+    let state = console.lock().unwrap();
+    state.settings.automagic
+}
+
 pub fn eval_string_raw_global(code: &str) -> anyhow::Result<String> {
     unsafe {
         let protected = eval_code(code)?;

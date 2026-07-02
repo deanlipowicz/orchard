@@ -220,3 +220,126 @@ impl magic::MagicHandler for HistN {
         Ok(magic::Output::Text(output))
     }
 }
+
+// ---------------------------------------------------------------------------
+// %save — Save history to file
+// ---------------------------------------------------------------------------
+
+pub struct Save;
+
+impl magic::MagicHandler for Save {
+    fn name(&self) -> &'static str {
+        "save"
+    }
+    fn description(&self) -> &'static str {
+        "Save history to a file"
+    }
+    fn run(&self, line: &magic::MagicLine) -> Result<magic::Output, magic::MagicError> {
+        let path = line.args.trim();
+        if path.is_empty() {
+            return Err(magic::MagicError {
+                message: "Usage: %save <filepath>".into(),
+            });
+        }
+        let filter = SnapshotFilter {
+            mode_filter: None,
+            pattern: None,
+        };
+        export_history(path, &filter)?;
+        let entries = recent_entries(&filter, 0);
+        Ok(magic::Output::Text(format!(
+            "Saved {} history entries to {}\n",
+            entries.len(),
+            path
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(text: &str) -> Entry {
+        Entry {
+            mode: "r".into(),
+            text: text.into(),
+        }
+    }
+
+    fn entries(texts: &[&str]) -> Vec<Entry> {
+        texts.iter().map(|t| entry(t)).collect()
+    }
+
+    #[test]
+    fn resolve_range_empty_returns_all() {
+        let e = entries(&["a", "b", "c"]);
+        let result = resolve_range("", &e).unwrap();
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn resolve_range_dollar_absolute() {
+        let e = entries(&["x0", "x1", "x2", "x3", "x4"]);
+        let result = resolve_range("$3", &e).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].text, "x2");
+    }
+
+    #[test]
+    fn resolve_range_dollar_out_of_range() {
+        let e = entries(&["a", "b"]);
+        assert!(resolve_range("$5", &e).is_none());
+    }
+
+    #[test]
+    fn resolve_range_neg_last_n() {
+        let e = entries(&["a", "b", "c", "d", "e"]);
+        let result = resolve_range("-2", &e).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].text, "d");
+        assert_eq!(result[1].text, "e");
+    }
+
+    #[test]
+    fn resolve_range_neg_more_than_available() {
+        let e = entries(&["a", "b"]);
+        assert!(resolve_range("-5", &e).is_none());
+    }
+
+    #[test]
+    fn resolve_range_dash_range() {
+        let e = entries(&["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9"]);
+        let result = resolve_range("1-3", &e).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].text, "x7");
+        assert_eq!(result[1].text, "x8");
+        assert_eq!(result[2].text, "x9");
+    }
+
+    #[test]
+    fn resolve_range_colon_range() {
+        let e = entries(&["x0", "x1", "x2", "x3", "x4"]);
+        let result = resolve_range("1:2", &e).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].text, "x3");
+        assert_eq!(result[1].text, "x4");
+    }
+
+    #[test]
+    fn resolve_range_single_number() {
+        let e = entries(&["a", "b", "c", "d"]);
+        let result = resolve_range("1", &e).unwrap();
+        assert_eq!(result[0].text, "d");
+    }
+
+    #[test]
+    fn resolve_range_invalid_formats() {
+        let e = entries(&["a"]);
+        assert!(resolve_range("garbage", &e).is_none());
+        assert!(resolve_range("$0", &e).is_none());
+        assert!(resolve_range("-0", &e).is_none());
+        assert!(resolve_range("0", &e).is_none());
+        assert!(resolve_range("0-2", &e).is_none());
+        assert!(resolve_range("2-1", &e).is_none());
+    }
+}

@@ -159,6 +159,11 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::eda::Freq));
     registry.register(Arc::new(crate::magics::eda::Compare));
     registry.register(Arc::new(crate::magics::eda::SessionInfo));
+
+    // P10 — Debug/Config utilities
+    registry.register(Arc::new(crate::magics::debug::Xmode));
+    registry.register(Arc::new(crate::magics::config::Automagic));
+    registry.register(Arc::new(crate::magics::history_magics::Save));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
