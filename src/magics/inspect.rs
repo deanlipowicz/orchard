@@ -1,5 +1,6 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
 use crate::r_runtime;
+use comfy_table::{presets::UTF8_FULL, Attribute, Cell, CellAlignment, ContentArrangement, Table};
 
 fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
     let wrapped = format!("capture.output({code})");
@@ -458,5 +459,122 @@ impl MagicHandler for View {
             }
         })?;
         Ok(Output::Silent)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %inspect — Render any R object as a formatted text table
+// ---------------------------------------------------------------------------
+
+/// Parse tab-separated structured data from R into a comfy-table.
+fn render_tabular(data: &str, expr: &str) -> String {
+    let lines: Vec<&str> = data.lines().collect();
+    if lines.len() < 2 {
+        return format!("(empty result for {expr})\n");
+    }
+
+    let header_parts: Vec<&str> = lines[0].split('\t').collect();
+    if header_parts.is_empty() || header_parts.len() < 3 {
+        return format!("(unexpected data format: {data})\n");
+    }
+    let class_name = header_parts[0];
+    let nrow: usize = header_parts[1].parse().unwrap_or(0);
+    let ncol: usize = header_parts[2].parse().unwrap_or(0);
+
+    let col_names: Vec<&str> = if lines.len() > 1 {
+        lines[1].split('\t').collect()
+    } else {
+        Vec::new()
+    };
+
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .set_content_arrangement(ContentArrangement::DynamicFullWidth);
+
+    // Header row
+    let header_cells: Vec<Cell> = col_names
+        .iter()
+        .map(|name| Cell::new(name).set_alignment(CellAlignment::Center).add_attribute(Attribute::Bold))
+        .collect();
+    table.set_header(header_cells);
+
+    // Data rows
+    for line in lines.iter().skip(2) {
+        let values: Vec<&str> = line.split('\t').collect();
+        let row_cells: Vec<Cell> = values.iter().map(Cell::new).collect();
+        table.add_row(row_cells);
+    }
+
+    // Footer summary
+    let footer = if nrow > ncol {
+        format!("\nShowing {} of {} rows, {} columns ({class_name})", nrow.min(20), nrow, ncol)
+    } else {
+        format!("\nShowing {} columns", ncol)
+    };
+
+    format!("{table}{footer}\n")
+}
+
+fn build_inspect_code(expr: &str) -> String {
+    format!(
+        r#"local({{
+  x <- {expr}
+  if (is.data.frame(x) || is.matrix(x)) {{
+    h <- utils::head(x, 20)
+    nr <- NROW(x)
+    nc <- NCOL(x)
+    cls <- class(x)[1]
+    cn <- colnames(x)
+    if (is.null(cn)) cn <- paste0("V", seq_len(nc))
+    data_lines <- apply(h, 1, function(r) paste(ifelse(is.na(r), "NA", as.character(r)), collapse = "\t"))
+    paste(c(
+      paste(cls, nr, nc, sep = "\t"),
+      paste(cn, collapse = "\t"),
+      data_lines
+    ), collapse = "\n")
+  }} else {{
+    paste("no-table", paste(capture.output(str(x, give.attr = FALSE)), collapse = "\n"), sep = "\t")
+  }}
+}})"#,
+        expr = expr
+    )
+}
+
+pub struct Inspect;
+
+impl MagicHandler for Inspect {
+    fn name(&self) -> &'static str {
+        "inspect"
+    }
+    fn description(&self) -> &'static str {
+        "Render any R object as a formatted text table"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let expr = line.args.trim();
+        if expr.is_empty() {
+            return Err(magic::MagicError {
+                message: "Usage: %inspect <R expression>".into(),
+            });
+        }
+
+        let code = build_inspect_code(expr);
+        let result = r_runtime::eval_string_raw_global(&code).map_err(|e| magic::MagicError {
+            message: e.to_string(),
+        })?;
+
+        if result.is_empty() {
+            return Ok(Output::Text(format!("(empty result for {expr})\n")));
+        }
+
+        // Check if the result is a non-tabular fallback
+        if let Some(rest) = result.strip_prefix("no-table\t") {
+            // Non-tabular object — show str output with a simple header
+            let output = format!("── {expr} ──\n{rest}\n");
+            return Ok(Output::Text(output));
+        }
+
+        let rendered = render_tabular(&result, expr);
+        Ok(Output::Text(rendered))
     }
 }
