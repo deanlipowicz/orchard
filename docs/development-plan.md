@@ -475,9 +475,9 @@ Automatically re-source modified R files detected by filesystem watcher
 | `%logstate` | Show logging state | 0.5h | ✅ Done |
 | `%reset` | Clean workspace (all or selective by pattern) | 0.5h | ✅ Done |
 | `%xdel` | Delete variables with `.last_del` backup | 0.5h | ✅ Done |
-| Cwd-contextual history | Tag history entries with working directory | 3h | 🔲 Planned |
+| Cwd-contextual history | Tag history entries with working directory, `%hist --dir` filter, prioritized reverse search | 3h | ✅ Done |
 
-**Subtotal:** 9 of 10 items complete (~3h planned for cwd-contextual history).
+**Subtotal:** All 10 items complete.
 
 ### v0.5 — Debugger + Fuzzy Completion
 
@@ -623,7 +623,7 @@ Automatically re-source modified R files detected by filesystem watcher
 v0.2: 47 handlers (baseline)
 v0.3: 59 handlers (+8 EDA, +1 xmode, +1 save, +1 automagic, +1 inspect — plus $/@/pipe completion, CI pipeline)
        ➜ Complete
-v0.4: 66 handlers (+7: rerun, recall, store, logstart, logstop, logstate, reset, xdel)
+v0.4: 66 handlers (+7 handlers + cwd-contextual history search)
        ➜ Complete
 v0.5: 72 handlers (+10: debug, pdb, debugonce, undebug, browser, n, finish, Q,
                 +variable selector, ? modal help, methods, psearch)

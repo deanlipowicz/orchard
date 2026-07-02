@@ -11,6 +11,35 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-02 — Cwd-Contextual History (Last v0.4 Feature)
+
+**Goal:** Tag history entries with the working directory they were executed in,
+so `%hist --dir .` shows only project-relevant entries and reverse search
+prioritizes same-directory results.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/history.rs` | Added `cwd: Option<String>` field to `Entry` struct with `Entry::new()` and `Entry::with_cwd()` constructors. Updated `write_entry()` to emit `# cwd: /path` metadata after `# mode:` line. Updated `parse()` to read `# cwd:` lines backward-compatibly (old files without the tag get `cwd: None`). Added `cwds` parallel vector to `OrchardHistoryBackend`, seeded from entries on construction. `save()` records current directory. `search()` boosts same-directory entries to the top of results. |
+| `src/magics/history_magics.rs` | `%hist --dir <path>` flag filters entries by working directory. Display now shows `[/path]` tag for entries with cwd metadata. |
+
+**v0.4 fully complete** — all 10 items delivered (7 handlers + cwd-contextual history + CI pipeline). 66 magic handlers, 406 tests.
+
+**Verification:**
+```
+cargo check                # 0 errors, 0 warnings
+cargo clippy -- -D warnings  # 0 warnings
+cargo test --lib           # 406 passed, 0 failed
+```
+
+**Commit:**
+```
+db1b4b3 feat: add cwd-contextual history with @cwd metadata, --dir filter, and prioritized search
+```
+
+---
+
 ## 2026-07-02 — v0.4 History Replay (7 New Handlers)
 
 **Goal:** Add v0.4 History Replay + Reproducibility handlers — history replay,
