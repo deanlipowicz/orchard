@@ -730,7 +730,7 @@ These upstream Python radian features are intentionally deferred or excluded:
 
 ```bash
 cargo check                             # 0 errors, 0 warnings
-cargo test --lib --no-fail-fast         # 356 passed
+cargo test --lib --no-fail-fast         # 390 passed
 cargo test --test magic_framework       # 7 passed
 cargo clippy                            # 0 warnings
 ```
