@@ -759,6 +759,32 @@ extern "C" fn read_console(
             append_history(&PromptMode::Shell, command);
             continue;
         }
+        // ? modal help: route ?name → %pdoc, ??name → %psource
+        if let Some(rest) = text.trim_start().strip_prefix('?') {
+            if rest.starts_with('?') {
+                // ??name → show source code
+                let source_query = rest
+                    .strip_prefix('?')
+                    .unwrap_or(rest)
+                    .trim()
+                    .trim_end_matches('\n');
+                if source_query.is_empty() {
+                    println!("Show source code for an R function.\nUsage: ??function_name");
+                } else if let Err(e) = dispatch_source(source_query) {
+                    eprintln!("{e}");
+                }
+            } else {
+                // ?name → show documentation
+                let doc_query = rest.trim().trim_end_matches('\n');
+                if doc_query.is_empty() {
+                    println!("Show documentation for an R function.\nUsage: ?function_name");
+                } else if let Err(e) = dispatch_doc(doc_query) {
+                    eprintln!("{e}");
+                }
+            }
+            io::stdout().flush().ok();
+            continue;
+        }
         if let Some(magic_cmd) = magic::parse_magic(&text, settings.automagic) {
             match magic::dispatch(&magic_cmd) {
                 Ok(MagicOutput::Eval(code)) => {
@@ -911,6 +937,33 @@ fn read_console_interactive(
                 append_history(&PromptMode::Shell, command);
                 store_prompt_session(session);
             }
+            continue;
+        }
+        // ? modal help: route ?name → %pdoc, ??name → %psource
+        if let Some(rest) = text.trim_start().strip_prefix('?') {
+            if rest.starts_with('?') {
+                // ??name → show source code
+                let source_query = rest
+                    .strip_prefix('?')
+                    .unwrap_or(rest)
+                    .trim()
+                    .trim_end_matches('\n');
+                if source_query.is_empty() {
+                    println!("Show source code for an R function.\nUsage: ??function_name");
+                } else if let Err(e) = dispatch_source(source_query) {
+                    eprintln!("{e}");
+                }
+            } else {
+                // ?name → show documentation
+                let doc_query = rest.trim().trim_end_matches('\n');
+                if doc_query.is_empty() {
+                    println!("Show documentation for an R function.\nUsage: ?function_name");
+                } else if let Err(e) = dispatch_doc(doc_query) {
+                    eprintln!("{e}");
+                }
+            }
+            io::stdout().flush().ok();
+            store_prompt_session(session);
             continue;
         }
         if let Some(magic_cmd) = magic::parse_magic(&text, settings.automagic) {
@@ -1221,6 +1274,40 @@ fn update_cursor(bytes: &[u8]) {
     let stripped = strip_ansi(&text);
     let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
     console.lock().unwrap().terminal_cursor_at_beginning = stripped.ends_with('\n');
+}
+
+/// Dispatch `?name` to `%pdoc name`.
+fn dispatch_doc(topic: &str) -> Result<(), String> {
+    let cmd = magic::MagicLine {
+        name: "pdoc".into(),
+        args: topic.to_string(),
+        is_cell: false,
+    };
+    match magic::dispatch(&cmd) {
+        Ok(MagicOutput::Text(msg)) => {
+            print!("{msg}");
+            Ok(())
+        }
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Dispatch `??name` to `%psource name`.
+fn dispatch_source(topic: &str) -> Result<(), String> {
+    let cmd = magic::MagicLine {
+        name: "psource".into(),
+        args: topic.to_string(),
+        is_cell: false,
+    };
+    match magic::dispatch(&cmd) {
+        Ok(MagicOutput::Text(msg)) => {
+            print!("{msg}");
+            Ok(())
+        }
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -1682,5 +1769,44 @@ mod tests {
     fn console_input_long_ascii_splits_and_drains() {
         let (head, _tail) = split_console_input("abcdef\n", 3);
         assert_eq!(head, "abc");
+    }
+
+    #[test]
+    fn question_detects_single_at_line_start() {
+        let text = "?lm\n";
+        let rest = text.trim_start().strip_prefix('?').unwrap();
+        assert!(!rest.starts_with('?'));
+        let query = rest.trim_end_matches('\n');
+        assert_eq!(query, "lm");
+    }
+
+    #[test]
+    fn question_detects_double_at_line_start() {
+        let text = "??lm\n";
+        let rest = text.trim_start().strip_prefix('?').unwrap();
+        assert!(rest.starts_with('?'));
+        let double_rest = rest.strip_prefix('?').unwrap();
+        let query = double_rest.trim_end_matches('\n');
+        assert_eq!(query, "lm");
+    }
+
+    #[test]
+    fn question_bare_question_shows_usage() {
+        let text = "?\n";
+        let rest = text.trim_start().strip_prefix('?').unwrap();
+        let query = rest.trim_end_matches('\n');
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn question_not_at_line_start_ignored() {
+        let text = "x ? y\n";
+        assert!(text.trim_start().strip_prefix('?').is_none());
+    }
+
+    #[test]
+    fn question_with_leading_whitespace_still_detected() {
+        let text = "  ?lm\n";
+        assert!(text.trim_start().strip_prefix('?').is_some());
     }
 }
