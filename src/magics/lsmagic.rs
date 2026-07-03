@@ -37,7 +37,11 @@ mod tests {
 
     #[test]
     fn lsmagic_lists_handlers() {
-        let line = MagicLine { name: "lsmagic".into(), args: "".into(), is_cell: false };
+        let line = MagicLine {
+            name: "lsmagic".into(),
+            args: "".into(),
+            is_cell: false,
+        };
         let result = Lsmagic.run(&line);
         assert!(result.is_ok());
         if let Ok(Output::Text(msg)) = result {

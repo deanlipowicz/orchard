@@ -1,6 +1,6 @@
 //! Namespace-style (`pkg::fun`) completions from static package symbol data.
 
-use super::{is_name_char, rank_completions, Completion, PACKAGE_SYMBOLS};
+use super::{Completion, PACKAGE_SYMBOLS, is_name_char, rank_completions};
 use std::{collections::HashMap, sync::OnceLock};
 
 /// Look up exported function names + argument signatures for a package from static TSV.

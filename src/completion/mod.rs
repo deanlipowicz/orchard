@@ -510,9 +510,9 @@ mod variable;
 pub use variable::*;
 
 mod magic;
-pub use magic::*;
 #[cfg(test)]
 pub(crate) use magic::magic_arg_kind;
+pub use magic::*;
 
 mod spellcheck;
 pub use spellcheck::*;

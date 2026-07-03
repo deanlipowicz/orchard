@@ -1,5 +1,5 @@
-use crate::magic::{self, MagicHandler, MagicLine, Output};
 use super::r_utils;
+use crate::magic::{self, MagicHandler, MagicLine, Output};
 
 // ---------------------------------------------------------------------------
 // %pinfo — Show object info (alias for %whos)
@@ -183,21 +183,33 @@ mod tests {
 
     #[test]
     fn store_empty_args_errors() {
-        let line = MagicLine { name: "store".into(), args: "".into(), is_cell: false };
+        let line = MagicLine {
+            name: "store".into(),
+            args: "".into(),
+            is_cell: false,
+        };
         let result = Store.run(&line);
         assert!(result.is_err());
     }
 
     #[test]
     fn store_load_no_filename_errors() {
-        let line = MagicLine { name: "store".into(), args: "-l ".into(), is_cell: false };
+        let line = MagicLine {
+            name: "store".into(),
+            args: "-l ".into(),
+            is_cell: false,
+        };
         let result = Store.run(&line);
         assert!(result.is_err());
     }
 
     #[test]
     fn store_save_no_filename_errors() {
-        let line = MagicLine { name: "store".into(), args: "myobj".into(), is_cell: false };
+        let line = MagicLine {
+            name: "store".into(),
+            args: "myobj".into(),
+            is_cell: false,
+        };
         let result = Store.run(&line);
         assert!(result.is_err());
     }
@@ -207,7 +219,11 @@ mod tests {
     #[test]
     #[ignore = "requires R initialization"]
     fn reset_clears_workspace() {
-        let line = MagicLine { name: "reset".into(), args: "".into(), is_cell: false };
+        let line = MagicLine {
+            name: "reset".into(),
+            args: "".into(),
+            is_cell: false,
+        };
         let _result = Reset.run(&line);
     }
 
@@ -215,7 +231,11 @@ mod tests {
 
     #[test]
     fn xdel_empty_args_errors() {
-        let line = MagicLine { name: "xdel".into(), args: "".into(), is_cell: false };
+        let line = MagicLine {
+            name: "xdel".into(),
+            args: "".into(),
+            is_cell: false,
+        };
         let result = Xdel.run(&line);
         assert!(result.is_err());
     }

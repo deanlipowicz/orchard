@@ -1,6 +1,6 @@
 //! Pipe chain (`%>%`) context detection and column-name completions.
 
-use super::{rank_completions, Completion};
+use super::{Completion, rank_completions};
 use crate::r_runtime;
 use crate::util::r_string;
 
@@ -41,10 +41,8 @@ pub fn pipe_completions(line: &str, cursor: usize) -> Option<(Vec<Completion>, u
         r_string(&expr)
     );
 
-    let result = r_runtime::with_suppressed_stderr(|| {
-        r_runtime::eval_string_raw_global(&r_code)
-    })
-    .unwrap_or_default();
+    let result = r_runtime::with_suppressed_stderr(|| r_runtime::eval_string_raw_global(&r_code))
+        .unwrap_or_default();
 
     let names: Vec<String> = result
         .lines()

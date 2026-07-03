@@ -233,7 +233,8 @@ mod tests {
     fn join_entries_single() {
         let entries = vec![crate::history::Entry {
             text: "1 + 1".into(),
-            mode: String::new(), cwd: None,
+            mode: String::new(),
+            cwd: None,
         }];
         assert_eq!(join_entries(&entries), "1 + 1");
     }
@@ -241,8 +242,16 @@ mod tests {
     #[test]
     fn join_entries_multiple() {
         let entries = vec![
-            crate::history::Entry { text: "a".into(), mode: String::new(), cwd: None },
-            crate::history::Entry { text: "b".into(), mode: String::new(), cwd: None },
+            crate::history::Entry {
+                text: "a".into(),
+                mode: String::new(),
+                cwd: None,
+            },
+            crate::history::Entry {
+                text: "b".into(),
+                mode: String::new(),
+                cwd: None,
+            },
         ];
         assert_eq!(join_entries(&entries), "a\nb");
     }
@@ -327,7 +336,11 @@ mod tests {
     fn macro_list_empty() {
         // Clear macros first
         macros().lock().unwrap().clear();
-        let line = MagicLine { name: "macro".into(), args: "".into(), is_cell: false };
+        let line = MagicLine {
+            name: "macro".into(),
+            args: "".into(),
+            is_cell: false,
+        };
         let result = Macro.run(&line);
         assert!(result.is_ok());
         if let Ok(Output::Text(msg)) = result {
@@ -338,14 +351,22 @@ mod tests {
     #[test]
     fn macro_store_and_list() {
         macros().lock().unwrap().clear();
-        let line = MagicLine { name: "macro".into(), args: "foo <- print(42)".into(), is_cell: false };
+        let line = MagicLine {
+            name: "macro".into(),
+            args: "foo <- print(42)".into(),
+            is_cell: false,
+        };
         let result = Macro.run(&line);
         assert!(result.is_ok());
         if let Ok(Output::Text(msg)) = result {
             assert!(msg.contains("Stored macro 'foo'"));
         }
 
-        let list = Macro.run(&MagicLine { name: "macro".into(), args: "".into(), is_cell: false });
+        let list = Macro.run(&MagicLine {
+            name: "macro".into(),
+            args: "".into(),
+            is_cell: false,
+        });
         assert!(list.is_ok());
         if let Ok(Output::Text(msg)) = list {
             assert!(msg.contains("foo"), "list should contain macro: {msg}");
@@ -355,7 +376,11 @@ mod tests {
     #[test]
     fn macro_unknown_returns_error() {
         macros().lock().unwrap().clear();
-        let line = MagicLine { name: "macro".into(), args: "nonexistent".into(), is_cell: false };
+        let line = MagicLine {
+            name: "macro".into(),
+            args: "nonexistent".into(),
+            is_cell: false,
+        };
         let result = Macro.run(&line);
         assert!(result.is_err());
     }
@@ -383,7 +408,11 @@ mod tests {
     #[ignore = "requires R initialization (eval_string_raw_global)"]
     fn edit_empty_args_with_history() {
         // Would test %edit with no args when history has exactly 1 entry (P0.2 fix)
-        let line = MagicLine { name: "edit".into(), args: "".into(), is_cell: false };
+        let line = MagicLine {
+            name: "edit".into(),
+            args: "".into(),
+            is_cell: false,
+        };
         let _result = Edit.run(&line);
     }
 }

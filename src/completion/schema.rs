@@ -1,8 +1,8 @@
 //! Schema-aware (`$`, `@`, `[[`) completions via R FFI and static data.
 
 use super::{
-    extract_bracket_context, extract_dollar_at_context, rank_completions, schema_cache,
-    static_dataset_columns, Completion, SchemaEntry, SCHEMA_CACHE_TTL,
+    Completion, SCHEMA_CACHE_TTL, SchemaEntry, extract_bracket_context, extract_dollar_at_context,
+    rank_completions, schema_cache, static_dataset_columns,
 };
 use crate::r_runtime;
 use crate::util::r_string;
@@ -66,10 +66,8 @@ fn resolve_schema(obj_name: &str, op: char) -> Vec<String> {
         )
     };
 
-    let result = r_runtime::with_suppressed_stderr(|| {
-        r_runtime::eval_string_raw_global(&r_code)
-    })
-    .unwrap_or_default();
+    let result = r_runtime::with_suppressed_stderr(|| r_runtime::eval_string_raw_global(&r_code))
+        .unwrap_or_default();
 
     let names: Vec<String> = result
         .lines()

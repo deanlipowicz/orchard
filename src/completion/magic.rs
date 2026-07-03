@@ -1,6 +1,6 @@
 //! Argument completions for magic commands (%run, %load, %cd, etc.).
 
-use super::{rank_completions, split_path_word, Completion};
+use super::{Completion, rank_completions, split_path_word};
 use crate::r_runtime;
 use std::{fs, path::PathBuf};
 
@@ -131,10 +131,8 @@ fn variable_name_completions(prefix: &str) -> Vec<Completion> {
         })
     "#;
 
-    let result = r_runtime::with_suppressed_stderr(|| {
-        r_runtime::eval_string_raw_global(r_code)
-    })
-    .unwrap_or_default();
+    let result = r_runtime::with_suppressed_stderr(|| r_runtime::eval_string_raw_global(r_code))
+        .unwrap_or_default();
 
     let names: Vec<String> = result.lines().map(String::from).collect();
     rank_completions(&names, prefix)

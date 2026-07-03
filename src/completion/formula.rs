@@ -4,8 +4,10 @@
 //! `data =` argument, and returns column-name completions from the
 //! referenced data frame.
 
-use super::{is_name_char, rank_completions, schema_cache, static_dataset_columns, Completion,
-            SCHEMA_CACHE_TTL, SchemaEntry};
+use super::{
+    Completion, SCHEMA_CACHE_TTL, SchemaEntry, is_name_char, rank_completions, schema_cache,
+    static_dataset_columns,
+};
 use crate::r_runtime;
 use crate::util::r_string;
 use std::time::Instant;
@@ -121,10 +123,8 @@ fn resolve_formula_columns(data_expr: &str) -> Vec<String> {
         r_string(data_expr)
     );
 
-    let result = r_runtime::with_suppressed_stderr(|| {
-        r_runtime::eval_string_raw_global(&r_code)
-    })
-    .unwrap_or_default();
+    let result = r_runtime::with_suppressed_stderr(|| r_runtime::eval_string_raw_global(&r_code))
+        .unwrap_or_default();
 
     let names: Vec<String> = result
         .lines()

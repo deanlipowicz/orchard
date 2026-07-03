@@ -74,10 +74,8 @@ fn r_function_names() -> Vec<String> {
         })
     "#;
 
-    let result = r_runtime::with_suppressed_stderr(|| {
-        r_runtime::eval_string_raw_global(r_code)
-    })
-    .unwrap_or_default();
+    let result = r_runtime::with_suppressed_stderr(|| r_runtime::eval_string_raw_global(r_code))
+        .unwrap_or_default();
 
     let names: Vec<String> = result
         .lines()

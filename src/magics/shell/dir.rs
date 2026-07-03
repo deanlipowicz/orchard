@@ -1,7 +1,7 @@
 //! Directory operations: %cd, %pushd, %popd, %dhist, %pwd.
 
-use crate::magic::{self, MagicHandler, MagicLine, Output};
 use super::shell_state;
+use crate::magic::{self, MagicHandler, MagicLine, Output};
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -117,7 +117,11 @@ impl MagicHandler for Pushd {
         } else {
             let expanded = crate::util::expand_tilde(args);
             let path = PathBuf::from(&expanded);
-            if path.is_absolute() { path } else { cwd.join(&path) }
+            if path.is_absolute() {
+                path
+            } else {
+                cwd.join(&path)
+            }
         };
 
         let canonical = std::fs::canonicalize(&target).map_err(|e| {

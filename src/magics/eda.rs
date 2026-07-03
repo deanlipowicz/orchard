@@ -1,5 +1,5 @@
-use crate::magic::{self, MagicHandler, MagicLine, Output};
 use super::r_utils;
+use crate::magic::{self, MagicHandler, MagicLine, Output};
 
 // ---------------------------------------------------------------------------
 // %summary — Statistical summary via summary()

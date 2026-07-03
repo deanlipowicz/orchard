@@ -3,7 +3,7 @@
 //! Detects cursor position inside a function call `fname(...)` and
 //! generates argument-name completions from `formals()`.
 
-use super::{is_name_char, rank_completions, Completion};
+use super::{Completion, is_name_char, rank_completions};
 use crate::r_runtime;
 use std::collections::HashMap;
 
@@ -73,10 +73,8 @@ pub fn function_arg_completions(line: &str, cursor: usize) -> Option<(Vec<Comple
         fn_expr
     );
 
-    let result = r_runtime::with_suppressed_stderr(|| {
-        r_runtime::eval_string_raw_global(&r_code)
-    })
-    .unwrap_or_default();
+    let result = r_runtime::with_suppressed_stderr(|| r_runtime::eval_string_raw_global(&r_code))
+        .unwrap_or_default();
 
     let mut arg_map: HashMap<String, Option<String>> = HashMap::new();
     for raw_line in result.lines() {

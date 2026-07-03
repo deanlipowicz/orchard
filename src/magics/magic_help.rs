@@ -61,11 +61,18 @@ mod tests {
 
     #[test]
     fn magic_help_empty_args() {
-        let line = MagicLine { name: "magic".into(), args: "".into(), is_cell: false };
+        let line = MagicLine {
+            name: "magic".into(),
+            args: "".into(),
+            is_cell: false,
+        };
         let result = MagicHelp.run(&line);
         assert!(result.is_ok());
         if let Ok(Output::Text(msg)) = result {
-            assert!(msg.contains("Magic command system"), "should show help: {msg}");
+            assert!(
+                msg.contains("Magic command system"),
+                "should show help: {msg}"
+            );
         }
     }
 

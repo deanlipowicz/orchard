@@ -1,7 +1,7 @@
 //! %bookmark — Manage directory bookmarks.
 
-use crate::magic::{self, MagicHandler, MagicLine, Output};
 use super::shell_state;
+use crate::magic::{self, MagicHandler, MagicLine, Output};
 use std::path::PathBuf;
 
 pub struct Bookmark;

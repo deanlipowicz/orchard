@@ -1,6 +1,6 @@
 //! Variable-selector completions from the global R environment.
 
-use super::{rank_completions, Completion};
+use super::{Completion, rank_completions};
 use crate::r_runtime;
 use std::collections::HashMap;
 
@@ -24,10 +24,8 @@ pub fn variable_selector_completions(prefix: &str) -> Vec<Completion> {
         })
     "#;
 
-    let result = r_runtime::with_suppressed_stderr(|| {
-        r_runtime::eval_string_raw_global(r_code)
-    })
-    .unwrap_or_default();
+    let result = r_runtime::with_suppressed_stderr(|| r_runtime::eval_string_raw_global(r_code))
+        .unwrap_or_default();
 
     let mut raw_map: HashMap<String, (String, String)> = HashMap::new();
     for line in result.lines() {
