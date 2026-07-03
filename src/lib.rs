@@ -16,4 +16,5 @@ pub mod r_discovery;
 pub mod r_runtime;
 pub mod settings;
 pub mod shell;
+pub mod terminal_graphics;
 pub mod util;

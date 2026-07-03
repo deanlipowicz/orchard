@@ -377,20 +377,50 @@ impl MagicHandler for Plot {
         "plot"
     }
     fn description(&self) -> &'static str {
-        "Plot an expression (opens graphics device)"
+        "Plot an expression (renders inline if terminal supports it)"
     }
     fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
-        if line.args.is_empty() {
+        let expr = line.args.trim();
+        if expr.is_empty() {
             return Err(magic::MagicError {
                 message: "Usage: %plot <expression>".into(),
             });
         }
-        r_runtime::eval_string_raw_global(&format!("plot({})", line.args)).map_err(|e| {
-            magic::MagicError {
-                message: e.to_string(),
-            }
+
+        // Create a temp file for the PNG output
+        let png_path = crate::terminal_graphics::new_plot_path();
+        let png_str = png_path.to_string_lossy().replace('\\', "/");
+
+        // Open PNG device, run the plot expression, close device
+        let r_code = format!(
+            "png('{png_str}', width=800, height=600); on.exit(dev.off(), add=TRUE); print({expr})"
+        );
+        r_runtime::eval_string_raw_global(&r_code).map_err(|e| magic::MagicError {
+            message: e.to_string(),
         })?;
-        Ok(Output::Text("Plot sent to graphics device.\n".into()))
+
+        // Try to display inline
+        match crate::terminal_graphics::display_png(&png_path) {
+            Ok(true) => {
+                // Displayed inline — clean up the temp file
+                let _ = std::fs::remove_file(&png_path);
+                Ok(Output::Silent)
+            }
+            Ok(false) => {
+                // Fallback: tell user where the file is
+                Ok(Output::Text(format!(
+                    "Plot saved to: {}\n",
+                    png_path.display()
+                )))
+            }
+            Err(e) => {
+                // Error during display — still keep the file
+                Ok(Output::Text(format!(
+                    "Plot saved to: {} (display error: {e})\n",
+                    png_path.display()
+                )))
+            }
+        }
     }
 }
 
