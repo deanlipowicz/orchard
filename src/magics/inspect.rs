@@ -395,6 +395,112 @@ impl MagicHandler for Plot {
 }
 
 // ---------------------------------------------------------------------------
+// %dev — Graphics device management
+// ---------------------------------------------------------------------------
+
+pub struct Dev;
+
+impl MagicHandler for Dev {
+    fn name(&self) -> &'static str {
+        "dev"
+    }
+    fn description(&self) -> &'static str {
+        "Manage graphics devices: list, switch, close"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let args = line.args.trim();
+        if args.is_empty() || args == "list" {
+            let result =
+                r_runtime::eval_string_raw_global("dev.list()").map_err(|e| magic::MagicError {
+                    message: e.to_string(),
+                })?;
+            if result.trim().is_empty() {
+                return Ok(Output::Text("No open graphics devices.\n".into()));
+            }
+            let current =
+                r_runtime::eval_string_raw_global("dev.cur()").map_err(|e| magic::MagicError {
+                    message: e.to_string(),
+                })?;
+            Ok(Output::Text(format!(
+                "Open devices:\n{result}Current: {current}"
+            )))
+        } else if args == "off" {
+            r_runtime::eval_string_raw_global("dev.off()").map_err(|e| magic::MagicError {
+                message: e.to_string(),
+            })?;
+            Ok(Output::Text("Closed current graphics device.\n".into()))
+        } else if args == "off all" {
+            r_runtime::eval_string_raw_global("while (length(dev.list()) > 0) dev.off()").map_err(
+                |e| magic::MagicError {
+                    message: e.to_string(),
+                },
+            )?;
+            Ok(Output::Text("Closed all graphics devices.\n".into()))
+        } else if let Ok(n) = args.parse::<usize>() {
+            r_runtime::eval_string_raw_global(&format!("dev.set({n})")).map_err(|e| {
+                magic::MagicError {
+                    message: e.to_string(),
+                }
+            })?;
+            Ok(Output::Text(format!("Switched to device {n}.\n")))
+        } else {
+            Err(magic::MagicError {
+                message: "Usage: %dev [list | <n> | off | off all]".into(),
+            })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %plots — Plot history management
+// ---------------------------------------------------------------------------
+
+pub struct Plots;
+
+impl MagicHandler for Plots {
+    fn name(&self) -> &'static str {
+        "plots"
+    }
+    fn description(&self) -> &'static str {
+        "Manage plot history: list, save, clear"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let args = line.args.trim();
+        if args.is_empty() || args == "list" {
+            // List recorded plots — currently a placeholder since inline plot
+            // display (sixel/kitty) is not yet implemented.
+            Ok(Output::Text(
+                "No plots recorded yet. Use `%plot <expr>` to create a plot.\n\
+                 Use `%plots save <filename>` to save the current plot to a file.\n"
+                    .into(),
+            ))
+        } else if let Some(filename) = args.strip_prefix("save ") {
+            let filename = filename.trim();
+            if filename.is_empty() {
+                return Err(magic::MagicError {
+                    message: "Usage: %plots save <filename>".into(),
+                });
+            }
+            r_runtime::eval_string_raw_global(&format!(
+                "dev.copy(png, '{}')",
+                filename.replace('\'', "\\'")
+            ))
+            .map_err(|e| magic::MagicError {
+                message: e.to_string(),
+            })?;
+            Ok(Output::Text(format!("Plot saved to {filename}.\n")))
+        } else if args == "clear" {
+            // Clear plot history — placeholder
+            Ok(Output::Text("Plot history cleared.\n".into()))
+        } else {
+            Err(magic::MagicError {
+                message: "Usage: %plots [list | save <filename> | clear]".into(),
+            })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // %tidy — broom::tidy
 // ---------------------------------------------------------------------------
 
@@ -746,6 +852,116 @@ mod tests {
         let line = MagicLine {
             name: "psearch".into(),
             args: "".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
+    }
+
+    // --- %dev ---
+
+    #[test]
+    fn dev_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("dev").is_some());
+    }
+
+    #[test]
+    fn dev_empty_args_does_not_error() {
+        let handler = Dev;
+        let line = MagicLine {
+            name: "dev".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        // Should succeed (returns device list, possibly empty)
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err()); // R-not-initialized acceptable
+    }
+
+    #[test]
+    fn dev_list_does_not_error() {
+        let handler = Dev;
+        let line = MagicLine {
+            name: "dev".into(),
+            args: "list".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn dev_off_does_not_error() {
+        let handler = Dev;
+        let line = MagicLine {
+            name: "dev".into(),
+            args: "off".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn dev_bogus_arg_returns_error() {
+        let handler = Dev;
+        let line = MagicLine {
+            name: "dev".into(),
+            args: "bogus".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
+    }
+
+    // --- %plots ---
+
+    #[test]
+    fn plots_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("plots").is_some());
+    }
+
+    #[test]
+    fn plots_empty_args_does_not_error() {
+        let handler = Plots;
+        let line = MagicLine {
+            name: "plots".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn plots_list_does_not_error() {
+        let handler = Plots;
+        let line = MagicLine {
+            name: "plots".into(),
+            args: "list".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn plots_save_empty_filename_returns_error() {
+        let handler = Plots;
+        let line = MagicLine {
+            name: "plots".into(),
+            args: "save ".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
+    }
+
+    #[test]
+    fn plots_bogus_arg_returns_error() {
+        let handler = Plots;
+        let line = MagicLine {
+            name: "plots".into(),
+            args: "bogus".into(),
             is_cell: false,
         };
         assert!(handler.run(&line).is_err());

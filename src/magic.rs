@@ -113,6 +113,8 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::inspect::Dim));
     registry.register(Arc::new(crate::magics::inspect::Names));
     registry.register(Arc::new(crate::magics::inspect::Plot));
+    registry.register(Arc::new(crate::magics::inspect::Dev));
+    registry.register(Arc::new(crate::magics::inspect::Plots));
     registry.register(Arc::new(crate::magics::inspect::Tidy));
     registry.register(Arc::new(crate::magics::inspect::View));
     registry.register(Arc::new(crate::magics::inspect::Pdoc));
@@ -135,7 +137,7 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::debug::StepFinish));
     registry.register(Arc::new(crate::magics::debug::QuitDebug));
     registry.register(Arc::new(crate::magics::timing::Time));
-    registry.register(Arc::new(crate::magics::timing::TimeIt));
+    registry.register(Arc::new(crate::magics::timing::Timeit));
     registry.register(Arc::new(crate::magics::timing::Prun));
 
     // P4 — History magics

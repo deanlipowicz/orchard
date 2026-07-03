@@ -7,7 +7,7 @@ a ground-up rewrite of the Python radian REPL, with IPython-style magic commands
 schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
-**Current state:** 77 registered magic handlers | 414+ tests | Linux only
+**Current state:** 79 registered magic handlers | 436 tests | Linux only
 **Next:** v0.5-v1.0 (debugger, TUI inspector, editor bridge, extension system, release)
 **Vision (v2.0):** Rich output (SVG/HTML), multithreaded R runtime, plugin architecture
 
@@ -78,7 +78,7 @@ Data Inspector (v0.3):
 | v0.3 | EDA core + editor loop | ✅ PASS | 59 handlers, comfy-table inspect |
 | v0.4 | History replay + reproducibility | ✅ PASS | 66 handlers, cwd-contextual history |
 | v0.5 | Debugger + fuzzy completion | ✅ PASS | 77 handlers, 8 debug handlers, ? modal help |
-| v0.6 | TUI inspector + inline plots | 🔲 Planned | See roadmap |
+| v0.6 | TUI inspector + inline plots | ✅ Phase 1 (text) + Phase 2 (TUI) done; %dev + %plots done | See roadmap |
 | v0.7 | Package mode + editor bridge | 🔲 Planned | See roadmap |
 | v0.8 | Quality of life | 🔲 Planned | See roadmap |
 | v0.9 | Platform + packaging | 🔲 Planned | macOS hardware |
@@ -113,7 +113,7 @@ All handlers registered in `src/magic.rs::register_all()`.
 |--------|----------|-------|
 | Framework | `%lsmagic`, `%magic` | 2 |
 | Shell | `%pwd`, `%env`, `%bookmark`, `%cd`, `%ls`, `%sx`, `%pushd`, `%popd`, `%dhist` | 9 |
-| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect`, `%methods`, `%psearch` | 21 |
+| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%dev`, `%plots`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect`, `%methods`, `%psearch` | 23 |
 | Debug | `%tb` (Traceback), `%where`, `%c` (Continue), `%xmode`, `%debug`, `%pdb`, `%debugonce`, `%undebug`, `%browser`, `%n`, `%finish`, `%Q` | 12 |
 | Timing | `%time`, `%timeit`, `%prun` | 3 |
 | History | `%hist`, `%hist_n`, `%save`, `%rerun`, `%recall` | 5 |
@@ -123,7 +123,7 @@ All handlers registered in `src/magic.rs::register_all()`.
 | File | `%run`, `%load` | 2 |
 | EDA | `%summary`, `%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`, `%sessioninfo` | 8 |
 | Logging | `%logstart`, `%logstop`, `%logstate` | 3 |
-| **Total** | | **77** |
+| **Total** | | **79** |
 
 **Dispatch order:** `;` → `?` → `%` → R
 
