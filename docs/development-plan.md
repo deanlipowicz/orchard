@@ -7,7 +7,7 @@ a ground-up rewrite of the Python radian REPL, with IPython-style magic commands
 schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
-**Current state:** 66 registered magic handlers | 397+ tests (390 lib + 7 magic framework) | Linux only
+**Current state:** 77 registered magic handlers | 397+ tests (390 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -18,7 +18,8 @@ reedline/readline → r_runtime::read_console_interactive
   ├── ; shell mode (persistent or one-shot)
   ├── ! inline shell execution
   ├── ?/?? object introspection
-  ├── % magic dispatch (66 handlers)
+  ├── ?/? modal help (lines starting with ?/?? → %pdoc/%psource)
+  ├── % magic dispatch (77 handlers)
   ├── + tab: Schema-aware autocomplete (14 backends) + variable selector ✅
   └── R evaluation (via R C API)
 
@@ -35,7 +36,7 @@ Data Inspector (v0.3):
 **Key files:**
 - `src/r_runtime.rs` — REPL loop, dispatch, R callbacks
 - `src/magic.rs` — registry, MagicHandler trait, MagicLine
-- `src/magics/*.rs` — handler modules (66 handlers)
+- `src/magics/*.rs` — handler modules (77 handlers)
 - `src/history.rs` — history + snapshot
 - `src/prompt.rs` — reedline session, completer, highlighter
 - `src/shell.rs` — shell commands, env lock
@@ -72,9 +73,9 @@ Data Inspector (v0.3):
 |------|-------|--------|----------|
 | v0.1 | Experimental Linux REPL | ✅ PASS | None |
 | v0.2 | Core radian parity on Linux | ✅ PASS | None |
-| v0.3 | EDA core + editor loop | 🔲 Planned | See roadmap |
-| v0.4 | History replay + reproducibility | 🔲 Planned | See roadmap |
-| v0.5 | Debugger + fuzzy completion | 🟡 Partial | Fuzzy/schema/magic/arg/spellcheck done; debugger handlers + `?` modal help planned |
+| v0.3 | EDA core + editor loop | ✅ PASS | 59 handlers, comfy-table inspect |
+| v0.4 | History replay + reproducibility | ✅ PASS | 66 handlers, cwd-contextual history |
+| v0.5 | Debugger + fuzzy completion | ✅ PASS | 77 handlers, 8 debug handlers, ? modal help |
 | v0.6 | TUI inspector + inline plots | 🔲 Planned | See roadmap |
 | v0.7 | Package mode + editor bridge | 🔲 Planned | See roadmap |
 | v0.8 | Quality of life | 🔲 Planned | See roadmap |
@@ -83,7 +84,7 @@ Data Inspector (v0.3):
 
 ---
 
-## Current Feature Set (58 Handlers)
+## Current Feature Set (77 Handlers)
 
 ### Core REPL (Python radian parity — all ✅)
 
@@ -102,7 +103,7 @@ Data Inspector (v0.3):
 | 10 | Lexer: string detection, highlighting |
 | 11 | Shell: `;` mode, `cd`, env expansion |
 
-### Magic Commands (58 Registered)
+### Magic Commands (77 Registered)
 
 All handlers registered in `src/magic.rs::register_all()`.
 
@@ -110,8 +111,8 @@ All handlers registered in `src/magic.rs::register_all()`.
 |--------|----------|-------|
 | Framework | `%lsmagic`, `%magic` | 2 |
 | Shell | `%pwd`, `%env`, `%bookmark`, `%cd`, `%ls`, `%sx`, `%pushd`, `%popd`, `%dhist` | 9 |
-| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect` | 19 |
-| Debug | `%tb` (Traceback), `%where`, `%c` (Continue), `%xmode` | 4 |
+| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect`, `%methods`, `%psearch` | 21 |
+| Debug | `%tb` (Traceback), `%where`, `%c` (Continue), `%xmode`, `%debug`, `%pdb`, `%debugonce`, `%undebug`, `%browser`, `%n`, `%finish`, `%Q` | 12 |
 | Timing | `%time`, `%timeit`, `%prun` | 3 |
 | History | `%hist`, `%hist_n`, `%save`, `%rerun`, `%recall` | 5 |
 | Config | `%config`, `%colors`, `%alias`, `%unalias`, `%automagic` | 5 |
@@ -119,9 +120,10 @@ All handlers registered in `src/magic.rs::register_all()`.
 | Edit | `%macro`, `%edit` | 2 |
 | File | `%run`, `%load` | 2 |
 | EDA | `%summary`, `%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`, `%sessioninfo` | 8 |
-| **Total** | | **66** |
+| Logging | `%logstart`, `%logstop`, `%logstate` | 3 |
+| **Total** | | **77** |
 
-**Dispatch order:** `;` → `!` → `?` → `%` → R
+**Dispatch order:** `;` → `?` → `%` → R
 
 ---
 
@@ -389,7 +391,7 @@ Planned cell magics (v1.0): `%%timeit` (time multi-line blocks), `%%capture`
 
 ## Feature: Julia REPL Strengths Integration
 
-### Modal Help (`?`) — Planned v0.5
+### Modal Help (`?`) — Delivered v0.5
 
 Julia's `?` at line start enters dedicated help mode. Orchard detects `?name`/`??name`
 at line start and routes through `%pdoc`/`%psource`. A modal `?` (pressing `?` at
@@ -479,21 +481,21 @@ Automatically re-source modified R files detected by filesystem watcher
 
 **Subtotal:** All 10 items complete.
 
-### v0.5 — Debugger + Fuzzy Completion
+### ✅ v0.5 — Debugger + Fuzzy Completion (Complete)
 
-**Target:** 72 handlers (62 + 10)
+**Target:** 77 handlers (66 + 11)
 **Focus:** Debugger completeness, fuzzy matching, and modal help.
 
-| Handler/Feature | Description | Effort |
-|-----------------|-------------|--------|
-| `%debug` | Post-mortem debugger entry | 1h |
-| `%pdb` | Toggle automatic debugger on error | 0.5h |
-| `%debugonce` | Set function to debug once | 0.5h |
-| `%undebug` | Remove debugger from function | 0.5h |
-| `%browser` | Invoke `browser()` at current point | 0.5h |
-| `%n` | Debugger step next | 0.5h |
-| `%finish` | Debugger step out | 0.5h |
-| `%Q` | Debugger quit | 0.5h |
+| Handler/Feature | Description | Effort | Status |
+|-----------------|-------------|--------|--------|
+| `%debug` | Post-mortem debugger entry | 1h | ✅ Done |
+| `%pdb` | Toggle automatic debugger on error | 0.5h | ✅ Done |
+| `%debugonce` | Set function to debug once | 0.5h | ✅ Done |
+| `%undebug` | Remove debugger from function | 0.5h | ✅ Done |
+| `%browser` | Invoke `browser()` at current point | 0.5h | ✅ Done |
+| `%n` | Debugger step next | 0.5h | ✅ Done |
+| `%finish` | Debugger step out | 0.5h | ✅ Done |
+| `%Q` | Debugger quit | 0.5h | ✅ Done |
 | Variable selector (`Tab` Manual) | Global env variable browser with type/size metadata | ✅ Done |
 | Fuzzy matching | Subsequence-based fuzzy match in all completion backends | ✅ Done |
 | Schema-aware completion | `$`/`@`/`[[` column/slot completion via R `names()`/`slotNames()` | ✅ Done |
@@ -503,20 +505,23 @@ Automatically re-source modified R files detected by filesystem watcher
 | R6 / refClass method completion | R6: `ls(envir=obj)`, refClass: `names()` | ✅ Done |
 | Spellcheck | Levenshtein-based "did you mean?" suggestions | ✅ Done |
 | Formula ~ completion | Column names from `data =` arg in lm()/glm()/aov() | ✅ Done |
-| `?` modal help | Detect `?` at line start, route to pdoc/psource | 1h |
-| `%methods` | S3/S4 dispatch introspection | 0.5h |
-| `%psearch` | Pattern-based object search | 0.5h |
+| `?` modal help | Detect `?` at line start, route to pdoc/psource | 1h | ✅ Done |
+| `%methods` | S3/S4 dispatch introspection | 0.5h | ✅ Done |
+| `%psearch` | Pattern-based object search | 0.5h | ✅ Done |
 
-**Subtotal:** ~2h remaining
+**Subtotal:** All items complete.
 
 **Architecture changes implemented:**
-- `src/completion.rs` expanded from 4 backends to 12: R, packages, LaTeX, shell, `$`/`@`, `[[`, `%>%`, magic args, function args, R6/refClass, variable selector, spellcheck
+- `src/completion.rs` expanded from 4 backends to 14: R, packages, LaTeX, shell, `$`/`@`, `[[`, `%>%`, magic args, function args, R6/refClass, variable selector, spellcheck, formula ~, namespace (`pkg::fun`)
+- `src/r_runtime.rs` — early-return `?`/`??` dispatch before magic parsing, routing to `%pdoc`/`%psource`
 - Context detection via paren-depth backtracking, operator scanning, and prefix parsing
-- `fuzzy_match()` implemented inline — no external crate dependency
+- `fuzzy_match()` implemented inline via SkimMatcherV2 crate
+- Frequency tracking with JSON persistence (`src/frequency.rs`)
+- Static TSV fast paths (`src/data/dataset_schemas.tsv`, `src/data/package_symbols.tsv`)
 
 ### v0.6 — TUI Inspector + Inline Plots
 
-**Target:** 74 handlers (72 + 2)
+**Target:** 79 handlers (77 + 2)
 **Focus:** Rich terminal rendering for data and graphics.
 
 | Feature | Description | Effort |
@@ -535,7 +540,7 @@ Automatically re-source modified R files detected by filesystem watcher
 
 ### v0.7 — Package Mode + Editor Bridge
 
-**Target:** 78 handlers (74 + 4)
+**Target:** 83 handlers (79 + 4)
 **Focus:** Terminal+editor IDE integration and reproducible package management.
 
 | Feature | Description | Effort |
@@ -557,7 +562,7 @@ Automatically re-source modified R files detected by filesystem watcher
 
 ### v0.8 — Quality of Life
 
-**Target:** 82 handlers (78 + 4)
+**Target:** 87 handlers (83 + 4)
 **Focus:** Snippets, navigation, and workflow polish.
 
 | Feature | Description | Effort |
@@ -573,7 +578,7 @@ Automatically re-source modified R files detected by filesystem watcher
 
 ### v0.9 — Platform + Packaging
 
-**Target:** 82 handlers (no new handlers — infrastructure)
+**Target:** 87 handlers (no new handlers — infrastructure)
 **Focus:** Cross-platform testing, CI, release packaging, and documentation.
 
 | Feature | Description | Effort |
@@ -625,13 +630,13 @@ v0.3: 59 handlers (+8 EDA, +1 xmode, +1 save, +1 automagic, +1 inspect — plus 
        ➜ Complete
 v0.4: 66 handlers (+7 handlers + cwd-contextual history search)
        ➜ Complete
-v0.5: 72 handlers (+10: debug, pdb, debugonce, undebug, browser, n, finish, Q,
-                +variable selector, ? modal help, methods, psearch)
-v0.6: 74 handlers (+2: %inspect TUI popup, %dev, %plots)
-v0.7: 78 handlers (+4: ] package mode, %import, %connections, %repro)
-v0.8: 82 handlers (+4: snippets, %z, %copy, notify)
-v0.9: 82 handlers (infrastructure: packaging, docs, macOS, CI)
-v1.0: 85+ handlers (+3: load_ext, reload_ext, unload_ext + %% cell magics + In/Out caching)
+v0.5: 77 handlers (+11: 8 debug handlers, %methods, %psearch, ? modal help)
+       ➜ Complete
+v0.6: 79 handlers (+2: %inspect TUI popup, %dev, %plots)
+v0.7: 83 handlers (+4: ] package mode, %import, %connections, %repro)
+v0.8: 87 handlers (+4: snippets, %z, %copy, notify)
+v0.9: 87 handlers (infrastructure: packaging, docs, macOS, CI)
+v1.0: 90+ handlers (+3: load_ext, reload_ext, unload_ext + %% cell magics + In/Out caching)
 ```
 
 ---
