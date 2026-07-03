@@ -124,6 +124,14 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::debug::Traceback));
     registry.register(Arc::new(crate::magics::debug::Where));
     registry.register(Arc::new(crate::magics::debug::Continue));
+    registry.register(Arc::new(crate::magics::debug::Debug));
+    registry.register(Arc::new(crate::magics::debug::Pdb));
+    registry.register(Arc::new(crate::magics::debug::DebugOnce));
+    registry.register(Arc::new(crate::magics::debug::Undebug));
+    registry.register(Arc::new(crate::magics::debug::Browser));
+    registry.register(Arc::new(crate::magics::debug::StepNext));
+    registry.register(Arc::new(crate::magics::debug::StepFinish));
+    registry.register(Arc::new(crate::magics::debug::QuitDebug));
     registry.register(Arc::new(crate::magics::timing::Time));
     registry.register(Arc::new(crate::magics::timing::TimeIt));
     registry.register(Arc::new(crate::magics::timing::Prun));

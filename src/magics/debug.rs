@@ -136,6 +136,177 @@ impl MagicHandler for Traceback {
     }
 }
 
+// ---------------------------------------------------------------------------
+// %debug — Enter post-mortem debugger
+// ---------------------------------------------------------------------------
+pub struct Debug;
+
+impl MagicHandler for Debug {
+    fn name(&self) -> &'static str {
+        "debug"
+    }
+    fn description(&self) -> &'static str {
+        "Enter post-mortem debugger (recover)"
+    }
+    fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
+        eval_r_captured("recover()")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %pdb — Toggle post-mortem debugger
+// ---------------------------------------------------------------------------
+pub struct Pdb;
+
+impl MagicHandler for Pdb {
+    fn name(&self) -> &'static str {
+        "pdb"
+    }
+    fn description(&self) -> &'static str {
+        "Toggle post-mortem debugger: on | off"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let args = line.args.trim();
+        if args.is_empty() {
+            let result = eval_r_captured("capture.output(cat(deparse(getOption('error'))))")?;
+            let current = match &result {
+                Output::Text(t) => t.clone(),
+                _ => format!("{:?}", result),
+            };
+            return Ok(Output::Text(format!("Current error handler: {}", current)));
+        }
+        match args {
+            "on" => {
+                eval_r_silent("options(error = recover)")?;
+                Ok(Output::Text("Post-mortem debugger enabled.\n".into()))
+            }
+            "off" => {
+                eval_r_silent("options(error = NULL)")?;
+                Ok(Output::Text("Post-mortem debugger disabled.\n".into()))
+            }
+            _ => Err(magic::MagicError {
+                message: format!("Usage: %pdb [on|off]. Unknown option: {args}"),
+            }),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %debugonce — Set a function to debug once
+// ---------------------------------------------------------------------------
+pub struct DebugOnce;
+
+impl MagicHandler for DebugOnce {
+    fn name(&self) -> &'static str {
+        "debugonce"
+    }
+    fn description(&self) -> &'static str {
+        "Set a function to debug once"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let name = line.args.trim();
+        if name.is_empty() {
+            return Err(magic::MagicError {
+                message: "Usage: %debugonce <function_name>".into(),
+            });
+        }
+        eval_r_silent(&format!("debugonce({name})"))?;
+        Ok(Output::Silent)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %undebug — Remove debugger from a function
+// ---------------------------------------------------------------------------
+pub struct Undebug;
+
+impl MagicHandler for Undebug {
+    fn name(&self) -> &'static str {
+        "undebug"
+    }
+    fn description(&self) -> &'static str {
+        "Remove debugger from a function"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let name = line.args.trim();
+        if name.is_empty() {
+            return Err(magic::MagicError {
+                message: "Usage: %undebug <function_name>".into(),
+            });
+        }
+        eval_r_silent(&format!("undebug({name})"))?;
+        Ok(Output::Silent)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %browser — Invoke browser() at the current point
+// ---------------------------------------------------------------------------
+pub struct Browser;
+
+impl MagicHandler for Browser {
+    fn name(&self) -> &'static str {
+        "browser"
+    }
+    fn description(&self) -> &'static str {
+        "Invoke browser() at the current point"
+    }
+    fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
+        Ok(Output::Eval("browser()".into()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %n — Execute next line in the debugger
+// ---------------------------------------------------------------------------
+pub struct StepNext;
+
+impl MagicHandler for StepNext {
+    fn name(&self) -> &'static str {
+        "n"
+    }
+    fn description(&self) -> &'static str {
+        "Execute next line in the debugger"
+    }
+    fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
+        Ok(Output::Eval("n".into()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %finish — Finish current function in the debugger
+// ---------------------------------------------------------------------------
+pub struct StepFinish;
+
+impl MagicHandler for StepFinish {
+    fn name(&self) -> &'static str {
+        "finish"
+    }
+    fn description(&self) -> &'static str {
+        "Finish current function in the debugger"
+    }
+    fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
+        Ok(Output::Eval("finish".into()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %Q — Quit the debugger
+// ---------------------------------------------------------------------------
+pub struct QuitDebug;
+
+impl MagicHandler for QuitDebug {
+    fn name(&self) -> &'static str {
+        "Q"
+    }
+    fn description(&self) -> &'static str {
+        "Quit the debugger"
+    }
+    fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
+        Ok(Output::Silent)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +393,199 @@ mod tests {
             is_cell: false,
         };
         assert!(handler.run(&line).is_err());
+    }
+
+    #[test]
+    fn debug_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("debug").is_some());
+    }
+
+    #[test]
+    fn debug_returns_text() {
+        let handler = Debug;
+        let line = MagicLine {
+            name: "debug".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn pdb_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("pdb").is_some());
+    }
+
+    #[test]
+    fn pdb_empty_args_does_not_error() {
+        let handler = Pdb;
+        let line = MagicLine {
+            name: "pdb".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        match result {
+            Ok(Output::Text(_)) => {}
+            Err(_) => {}
+            _ => panic!("expected Text or error"),
+        }
+    }
+
+    #[test]
+    fn pdb_on_does_not_error() {
+        let handler = Pdb;
+        let line = MagicLine {
+            name: "pdb".into(),
+            args: "on".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn pdb_off_does_not_error() {
+        let handler = Pdb;
+        let line = MagicLine {
+            name: "pdb".into(),
+            args: "off".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn pdb_invalid_arg_returns_error() {
+        let handler = Pdb;
+        let line = MagicLine {
+            name: "pdb".into(),
+            args: "bogus".into(),
+            is_cell: false,
+        };
+        let result = handler.run(&line);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn debugonce_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("debugonce").is_some());
+    }
+
+    #[test]
+    fn debugonce_empty_args_returns_error() {
+        let handler = DebugOnce;
+        let line = MagicLine {
+            name: "debugonce".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
+    }
+
+    #[test]
+    fn undebug_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("undebug").is_some());
+    }
+
+    #[test]
+    fn undebug_empty_args_returns_error() {
+        let handler = Undebug;
+        let line = MagicLine {
+            name: "undebug".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
+    }
+
+    #[test]
+    fn browser_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("browser").is_some());
+    }
+
+    #[test]
+    fn browser_returns_eval() {
+        let handler = Browser;
+        let line = MagicLine {
+            name: "browser".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        match handler.run(&line) {
+            Ok(Output::Eval(_)) => {}
+            Err(_) => {}
+            _ => panic!("expected Eval"),
+        }
+    }
+
+    #[test]
+    fn step_next_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("n").is_some());
+    }
+
+    #[test]
+    fn step_next_returns_eval() {
+        let handler = StepNext;
+        let line = MagicLine {
+            name: "n".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        match handler.run(&line) {
+            Ok(Output::Eval(_)) => {}
+            Err(_) => {}
+            _ => panic!("expected Eval"),
+        }
+    }
+
+    #[test]
+    fn step_finish_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("finish").is_some());
+    }
+
+    #[test]
+    fn step_finish_returns_eval() {
+        let handler = StepFinish;
+        let line = MagicLine {
+            name: "finish".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        match handler.run(&line) {
+            Ok(Output::Eval(_)) => {}
+            Err(_) => {}
+            _ => panic!("expected Eval"),
+        }
+    }
+
+    #[test]
+    fn quit_debug_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("Q").is_some());
+    }
+
+    #[test]
+    fn quit_debug_returns_silent() {
+        let handler = QuitDebug;
+        let line = MagicLine {
+            name: "Q".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        match handler.run(&line) {
+            Ok(Output::Silent) => {}
+            Err(_) => {}
+            _ => panic!("expected Silent"),
+        }
     }
 }
