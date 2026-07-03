@@ -1271,6 +1271,7 @@ fn browse_level(prompt: &str) -> Option<String> {
 /// Strip ANSI escape sequences from a string.
 fn strip_ansi(s: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
+    // Safe: hardcoded regex pattern is valid; will never fail to compile
     let re = RE.get_or_init(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
     re.replace_all(s, "").to_string()
 }
@@ -1496,6 +1497,7 @@ mod tests {
             let stripped = strip_ansi(&s);
             // The regex removes \x1b[[0-9;]*[a-zA-Z]. After stripping, no
             // such sequence should remain.
+            // Safe: hardcoded regex pattern is valid; will never fail to compile
             let re = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
             prop_assert!(
                 !re.is_match(&stripped),

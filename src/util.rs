@@ -38,6 +38,7 @@ pub fn expand_vars(input: &str) -> String {
                 .peek()
                 .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
             {
+                // Safe: peek() confirmed a character exists before entering loop
                 name.push(chars.next().unwrap());
             }
             if name.is_empty() {

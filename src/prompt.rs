@@ -450,6 +450,7 @@ fn find_matching_bracket(line: &str, cursor: usize) -> Option<(usize, usize)> {
     if cursor == 0 || cursor > line.len() {
         return None;
     }
+    // Safe: cursor > 0 was checked above, so line[..cursor] is non-empty
     let close = line[..cursor].chars().last().unwrap();
     let open = match close {
         ')' => '(',
