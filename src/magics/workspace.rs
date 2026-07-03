@@ -148,3 +148,92 @@ if (exists("{obj}", envir = .GlobalEnv)) {{
         r_utils::eval_r_captured(&code)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- Registration tests ---
+
+    #[test]
+    fn store_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("store").is_some());
+    }
+
+    #[test]
+    fn reset_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("reset").is_some());
+    }
+
+    #[test]
+    fn xdel_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("xdel").is_some());
+    }
+
+    #[test]
+    fn pinfo_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("pinfo").is_some());
+    }
+
+    // --- Store arg parsing (no R needed) ---
+
+    #[test]
+    fn store_empty_args_errors() {
+        let line = MagicLine { name: "store".into(), args: "".into(), is_cell: false };
+        let result = Store.run(&line);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn store_load_no_filename_errors() {
+        let line = MagicLine { name: "store".into(), args: "-l ".into(), is_cell: false };
+        let result = Store.run(&line);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn store_save_no_filename_errors() {
+        let line = MagicLine { name: "store".into(), args: "myobj".into(), is_cell: false };
+        let result = Store.run(&line);
+        assert!(result.is_err());
+    }
+
+    // --- Reset arg parsing (no R needed) ---
+
+    #[test]
+    #[ignore = "requires R initialization"]
+    fn reset_clears_workspace() {
+        let line = MagicLine { name: "reset".into(), args: "".into(), is_cell: false };
+        let _result = Reset.run(&line);
+    }
+
+    // --- Xdel arg parsing (no R needed) ---
+
+    #[test]
+    fn xdel_empty_args_errors() {
+        let line = MagicLine { name: "xdel".into(), args: "".into(), is_cell: false };
+        let result = Xdel.run(&line);
+        assert!(result.is_err());
+    }
+
+    // --- Handler identities ---
+
+    #[test]
+    fn store_name() {
+        assert_eq!(Store.name(), "store");
+    }
+
+    #[test]
+    fn reset_name() {
+        assert_eq!(Reset.name(), "reset");
+    }
+
+    #[test]
+    fn xdel_name() {
+        assert_eq!(Xdel.name(), "xdel");
+    }
+}

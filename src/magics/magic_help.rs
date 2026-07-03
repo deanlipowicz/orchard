@@ -48,3 +48,35 @@ impl MagicHandler for MagicHelp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn magic_help_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("magic").is_some());
+    }
+
+    #[test]
+    fn magic_help_empty_args() {
+        let line = MagicLine { name: "magic".into(), args: "".into(), is_cell: false };
+        let result = MagicHelp.run(&line);
+        assert!(result.is_ok());
+        if let Ok(Output::Text(msg)) = result {
+            assert!(msg.contains("Magic command system"), "should show help: {msg}");
+        }
+    }
+
+    #[test]
+    fn magic_help_unknown_command_errors() {
+        let line = MagicLine {
+            name: "magic".into(),
+            args: "nonexistent_magic_××××".into(),
+            is_cell: false,
+        };
+        let result = MagicHelp.run(&line);
+        assert!(result.is_err());
+    }
+}

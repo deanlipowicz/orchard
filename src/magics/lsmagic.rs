@@ -24,3 +24,25 @@ impl MagicHandler for Lsmagic {
         Ok(Output::Text(output))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lsmagic_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("lsmagic").is_some());
+    }
+
+    #[test]
+    fn lsmagic_lists_handlers() {
+        let line = MagicLine { name: "lsmagic".into(), args: "".into(), is_cell: false };
+        let result = Lsmagic.run(&line);
+        assert!(result.is_ok());
+        if let Ok(Output::Text(msg)) = result {
+            assert!(msg.contains("Available magics"), "should list: {msg}");
+            assert!(msg.contains("Total:"), "should show count: {msg}");
+        }
+    }
+}

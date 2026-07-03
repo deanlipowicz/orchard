@@ -119,3 +119,55 @@ impl MagicHandler for LogStateCmd {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logstart_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("logstart").is_some());
+    }
+
+    #[test]
+    fn logstop_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("logstop").is_some());
+    }
+
+    #[test]
+    fn logoff_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("logstop").is_some());
+    }
+
+    #[test]
+    fn logstate_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("logstate").is_some());
+    }
+
+    #[test]
+    fn logstate_reports_off_when_inactive() {
+        let result = LogStateCmd.run(&MagicLine {
+            name: "logstate".into(),
+            args: "".into(),
+            is_cell: false,
+        });
+        assert!(result.is_ok());
+        if let Ok(Output::Text(msg)) = result {
+            assert!(msg.contains("OFF"), "should report OFF: {msg}");
+        }
+    }
+
+    #[test]
+    fn logstop_noop_when_not_logging() {
+        let result = LogStop.run(&MagicLine {
+            name: "logstop".into(),
+            args: "".into(),
+            is_cell: false,
+        });
+        assert!(result.is_ok());
+    }
+}

@@ -214,4 +214,25 @@ mod tests {
         assert!(s.auto_match);
         assert!(s.auto_width);
     }
+
+    #[test]
+    fn custom_key_binding_parses() {
+        let kb = CustomKeyBinding {
+            key: "ctrl-r".into(),
+            value: "HistoryHint".into(),
+            mode: "emacs".into(),
+        };
+        assert_eq!(kb.key, "ctrl-r");
+        assert_eq!(kb.value, "HistoryHint");
+        assert_eq!(kb.mode, "emacs");
+    }
+
+    #[test]
+    fn prompt_constants() {
+        assert!(PROMPT.contains("r$>"));
+        assert!(SHELL_PROMPT.contains("#!>"));
+        assert!(BROWSE_PROMPT.contains("Browse"));
+        assert!(VI_MODE_PROMPT.contains("{}"));
+        assert!(STDERR_FORMAT.contains("{}"));
+    }
 }

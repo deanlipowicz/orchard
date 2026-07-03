@@ -42,9 +42,9 @@ impl MagicHandler for Time {
 // %timeit — Time an expression N times (default 7)
 // ---------------------------------------------------------------------------
 
-pub struct TimeIt;
+pub struct Timeit;
 
-impl MagicHandler for TimeIt {
+impl MagicHandler for Timeit {
     fn name(&self) -> &'static str {
         "timeit"
     }
@@ -165,5 +165,43 @@ impl MagicHandler for Prun {
         })?;
 
         Ok(Output::Text(summary))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn time_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("time").is_some());
+    }
+
+    #[test]
+    fn timeit_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("timeit").is_some());
+    }
+
+    #[test]
+    fn prun_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("prun").is_some());
+    }
+
+    #[test]
+    fn time_name() {
+        assert_eq!(Time.name(), "time");
+    }
+
+    #[test]
+    fn timeit_name() {
+        assert_eq!(Timeit.name(), "timeit");
+    }
+
+    #[test]
+    fn prun_name() {
+        assert_eq!(Prun.name(), "prun");
     }
 }

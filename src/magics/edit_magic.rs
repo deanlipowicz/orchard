@@ -222,3 +222,168 @@ impl MagicHandler for Edit {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- join_entries tests ---
+
+    #[test]
+    fn join_entries_single() {
+        let entries = vec![crate::history::Entry {
+            text: "1 + 1".into(),
+            mode: String::new(), cwd: None,
+        }];
+        assert_eq!(join_entries(&entries), "1 + 1");
+    }
+
+    #[test]
+    fn join_entries_multiple() {
+        let entries = vec![
+            crate::history::Entry { text: "a".into(), mode: String::new(), cwd: None },
+            crate::history::Entry { text: "b".into(), mode: String::new(), cwd: None },
+        ];
+        assert_eq!(join_entries(&entries), "a\nb");
+    }
+
+    #[test]
+    fn join_entries_empty() {
+        assert_eq!(join_entries(&[]), "");
+    }
+
+    // --- resolve_edit_target tests ---
+
+    #[test]
+    fn resolve_empty_args_without_history() {
+        // With no history entries, empty args should return error.
+        // Note: get_history_snapshot() returns the actual history,
+        // which is empty in unit tests → tests the P0.2 fix path.
+        let result = resolve_edit_target("");
+        assert!(result.is_err(), "empty history should error");
+        let msg = result.unwrap_err().message;
+        assert!(msg.contains("empty"), "expected 'empty' in error: {msg}");
+    }
+
+    #[test]
+    fn resolve_file_not_found() {
+        let result = resolve_edit_target("/tmp/orchard_nonexistent_testfile.R");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().message;
+        assert!(msg.contains("not found"), "expected 'not found': {msg}");
+    }
+
+    #[test]
+    fn resolve_dollar_absolute_index_parsing() {
+        let result = resolve_edit_target("$abc");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().message;
+        assert!(msg.contains("Invalid"), "expected parse error: {msg}");
+    }
+
+    #[test]
+    fn resolve_dollar_zero_index() {
+        let result = resolve_edit_target("$0");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().message;
+        assert!(msg.contains("≥ 1"), "expected ≥1 error: {msg}");
+    }
+
+    #[test]
+    fn resolve_range_contains_dash() {
+        // Verify contains('-') path is reached (P0.1 regression)
+        let result = resolve_edit_target("1-3");
+        assert!(result.is_err(), "range should fail without history");
+    }
+
+    #[test]
+    fn resolve_negative_range() {
+        // P0.1 regression: -N should be handled by the range branch
+        let result = resolve_edit_target("-5");
+        assert!(result.is_err(), "negative range should not panic");
+    }
+
+    #[test]
+    fn resolve_numeric_zero() {
+        let result = resolve_edit_target("0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_numeric_out_of_bounds() {
+        let result = resolve_edit_target("999");
+        assert!(result.is_err());
+    }
+
+    // --- Macro handler tests ---
+
+    #[test]
+    fn macro_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("macro").is_some());
+    }
+
+    #[test]
+    fn macro_list_empty() {
+        // Clear macros first
+        macros().lock().unwrap().clear();
+        let line = MagicLine { name: "macro".into(), args: "".into(), is_cell: false };
+        let result = Macro.run(&line);
+        assert!(result.is_ok());
+        if let Ok(Output::Text(msg)) = result {
+            assert!(msg.contains("(no macros"), "expected empty message: {msg}");
+        }
+    }
+
+    #[test]
+    fn macro_store_and_list() {
+        macros().lock().unwrap().clear();
+        let line = MagicLine { name: "macro".into(), args: "foo <- print(42)".into(), is_cell: false };
+        let result = Macro.run(&line);
+        assert!(result.is_ok());
+        if let Ok(Output::Text(msg)) = result {
+            assert!(msg.contains("Stored macro 'foo'"));
+        }
+
+        let list = Macro.run(&MagicLine { name: "macro".into(), args: "".into(), is_cell: false });
+        assert!(list.is_ok());
+        if let Ok(Output::Text(msg)) = list {
+            assert!(msg.contains("foo"), "list should contain macro: {msg}");
+        }
+    }
+
+    #[test]
+    fn macro_unknown_returns_error() {
+        macros().lock().unwrap().clear();
+        let line = MagicLine { name: "macro".into(), args: "nonexistent".into(), is_cell: false };
+        let result = Macro.run(&line);
+        assert!(result.is_err());
+    }
+
+    // --- Edit handler tests ---
+
+    #[test]
+    fn edit_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("edit").is_some());
+    }
+
+    #[test]
+    fn edit_file_not_found_errors() {
+        let line = MagicLine {
+            name: "edit".into(),
+            args: "/tmp/orchard_nonexistent_testfile.R".into(),
+            is_cell: false,
+        };
+        let result = Edit.run(&line);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[ignore = "requires R initialization (eval_string_raw_global)"]
+    fn edit_empty_args_with_history() {
+        // Would test %edit with no args when history has exactly 1 entry (P0.2 fix)
+        let line = MagicLine { name: "edit".into(), args: "".into(), is_cell: false };
+        let _result = Edit.run(&line);
+    }
+}
