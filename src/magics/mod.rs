@@ -8,6 +8,7 @@ pub mod inspect;
 pub mod logging;
 pub mod lsmagic;
 pub mod magic_help;
+pub mod r_utils;
 pub mod shell;
 pub mod timing;
 pub mod workspace;

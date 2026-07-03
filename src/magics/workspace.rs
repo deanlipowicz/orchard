@@ -1,18 +1,5 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
-
-fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
-    let text = crate::r_runtime::eval_string_raw_global(code).map_err(|e| magic::MagicError {
-        message: e.to_string(),
-    })?;
-    Ok(Output::Text(text))
-}
-
-fn eval_r_silent(code: &str) -> Result<(), magic::MagicError> {
-    crate::r_runtime::eval_string_raw_global(code).map_err(|e| magic::MagicError {
-        message: e.to_string(),
-    })?;
-    Ok(())
-}
+use super::r_utils;
 
 // ---------------------------------------------------------------------------
 // %pinfo — Show object info (alias for %whos)
@@ -29,9 +16,9 @@ impl MagicHandler for Pinfo {
     }
     fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
         if line.args.trim().is_empty() {
-            eval_r_captured("ls()")
+            r_utils::eval_r_captured("ls()")
         } else {
-            eval_r_captured(&format!("ls(pattern=\"{}\")", line.args.trim()))
+            r_utils::eval_r_captured(&format!("ls(pattern=\"{}\")", line.args.trim()))
         }
     }
 }
@@ -50,7 +37,7 @@ impl MagicHandler for Pinfo2 {
         "Show extended object information"
     }
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_r_captured("ls.str()")
+        r_utils::eval_r_captured("ls.str()")
     }
 }
 
@@ -81,7 +68,7 @@ impl MagicHandler for Store {
                     message: "Usage: %store -l <filename>".into(),
                 });
             }
-            eval_r_captured(&format!(
+            r_utils::eval_r_captured(&format!(
                 r#"load_or_error <- function(f) {{ if (!file.exists(f)) stop("file not found: ", f); readRDS(f) }}; print(load_or_error("{file}"))"#,
             ))
         } else {
@@ -93,7 +80,7 @@ impl MagicHandler for Store {
             }
             let obj = parts[0].trim();
             let file = parts[1].trim();
-            eval_r_captured(&format!(r#"saveRDS({obj}, file = "{file}")"#,))?;
+            r_utils::eval_r_captured(&format!(r#"saveRDS({obj}, file = "{file}")"#,))?;
             Ok(Output::Text(format!("Saved {obj} to {file}\n")))
         }
     }
@@ -115,11 +102,11 @@ impl MagicHandler for Reset {
     fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
         let args = line.args.trim();
         if args.is_empty() {
-            eval_r_silent("rm(list = ls(all = TRUE))")?;
+            r_utils::eval_r_silent("rm(list = ls(all = TRUE))")?;
             Ok(Output::Text("Workspace cleared.\n".into()))
         } else {
             // Selective reset: remove only matching objects
-            eval_r_silent(&format!("rm(list = ls(pattern = '{args}', all = TRUE))"))?;
+            r_utils::eval_r_silent(&format!("rm(list = ls(pattern = '{args}', all = TRUE))"))?;
             Ok(Output::Text(format!(
                 "Removed objects matching '{args}'.\n"
             )))
@@ -158,6 +145,6 @@ if (exists("{obj}", envir = .GlobalEnv)) {{
   cat("Object '{obj}' not found.\n")
 }}"#,
         );
-        eval_r_captured(&code)
+        r_utils::eval_r_captured(&code)
     }
 }

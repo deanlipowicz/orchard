@@ -1,23 +1,5 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
-
-fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
-    let wrapped = format!("capture.output({code})");
-    let text =
-        crate::r_runtime::eval_string_raw_global(&wrapped).map_err(|e| magic::MagicError {
-            message: e.to_string(),
-        })?;
-    Ok(Output::Text(text))
-}
-
-fn eval_with_pkg_check(code: &str, pkg: &str) -> Result<Output, magic::MagicError> {
-    let check = format!(
-        "if (!requireNamespace('{pkg}', quietly=TRUE)) stop('package {pkg} is not installed')"
-    );
-    crate::r_runtime::eval_string_raw_global(&check).map_err(|e| magic::MagicError {
-        message: e.to_string(),
-    })?;
-    eval_r_captured(code)
-}
+use super::r_utils;
 
 // ---------------------------------------------------------------------------
 // %summary — Statistical summary via summary()
@@ -41,7 +23,7 @@ impl MagicHandler for Summary {
                 message: "Usage: %summary <R expression>".into(),
             });
         }
-        eval_r_captured(&format!("base::summary({expr})"))
+        r_utils::eval_r_captured(&format!("base::summary({expr})"))
     }
 }
 
@@ -67,7 +49,7 @@ impl MagicHandler for Glimpse {
                 message: "Usage: %glimpse <R expression>".into(),
             });
         }
-        eval_with_pkg_check(&format!("dplyr::glimpse({expr})"), "dplyr")
+        r_utils::eval_with_pkg_check(&format!("dplyr::glimpse({expr})"), "dplyr")
     }
 }
 
@@ -93,7 +75,7 @@ impl MagicHandler for Describe {
                 message: "Usage: %describe <R expression>".into(),
             });
         }
-        eval_with_pkg_check(&format!("skimr::skim({expr})"), "skimr")
+        r_utils::eval_with_pkg_check(&format!("skimr::skim({expr})"), "skimr")
     }
 }
 
@@ -119,7 +101,7 @@ impl MagicHandler for Missing {
                 message: "Usage: %missing <R expression>".into(),
             });
         }
-        eval_with_pkg_check(&format!("print(naniar::miss_summary({expr}))"), "naniar")
+        r_utils::eval_with_pkg_check(&format!("print(naniar::miss_summary({expr}))"), "naniar")
     }
 }
 
@@ -145,7 +127,7 @@ impl MagicHandler for Corr {
                 message: "Usage: %corr <R expression>".into(),
             });
         }
-        eval_r_captured(&format!("cor({expr}, use = 'pairwise.complete.obs')"))
+        r_utils::eval_r_captured(&format!("cor({expr}, use = 'pairwise.complete.obs')"))
     }
 }
 
@@ -171,7 +153,7 @@ impl MagicHandler for Freq {
                 message: "Usage: %freq <R expression>".into(),
             });
         }
-        eval_with_pkg_check(&format!("janitor::tabyl({expr})"), "janitor")
+        r_utils::eval_with_pkg_check(&format!("janitor::tabyl({expr})"), "janitor")
     }
 }
 
@@ -197,7 +179,7 @@ impl MagicHandler for Compare {
                 message: "Usage: %compare <obj1, obj2>".into(),
             });
         }
-        eval_with_pkg_check(&format!("waldo::compare({expr}, max_diffs = 20)"), "waldo")
+        r_utils::eval_with_pkg_check(&format!("waldo::compare({expr}, max_diffs = 20)"), "waldo")
     }
 }
 
@@ -217,7 +199,7 @@ impl MagicHandler for SessionInfo {
     }
 
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_with_pkg_check("sessioninfo::session_info()", "sessioninfo")
+        r_utils::eval_with_pkg_check("sessioninfo::session_info()", "sessioninfo")
     }
 }
 

@@ -1,24 +1,7 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
 use crate::r_runtime;
+use super::r_utils;
 use comfy_table::{Attribute, Cell, CellAlignment, ContentArrangement, Table, presets::UTF8_FULL};
-
-fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
-    let wrapped = format!("capture.output({code})");
-    let text = r_runtime::eval_string_raw_global(&wrapped).map_err(|e| magic::MagicError {
-        message: e.to_string(),
-    })?;
-    Ok(Output::Text(text))
-}
-
-fn eval_with_pkg_check(code: &str, pkg: &str) -> Result<Output, magic::MagicError> {
-    let check = format!(
-        "if (!requireNamespace('{pkg}', quietly=TRUE)) stop('package {pkg} is not installed')"
-    );
-    r_runtime::eval_string_raw_global(&check).map_err(|e| magic::MagicError {
-        message: e.to_string(),
-    })?;
-    eval_r_captured(code)
-}
 
 // ---------------------------------------------------------------------------
 // %objects — List R objects (like `ls()`)
@@ -39,7 +22,7 @@ impl MagicHandler for Objects {
         } else {
             format!("pattern=\"{}\"", line.args)
         };
-        eval_r_captured(&format!("ls({pattern})"))
+        r_utils::eval_r_captured(&format!("ls({pattern})"))
     }
 }
 
@@ -62,7 +45,7 @@ impl MagicHandler for Pdoc {
                 message: "Usage: %pdoc <topic>".into(),
             });
         }
-        eval_r_captured(&format!(r#"tools::Rd2txt(utils::help("{}"))"#, line.args))
+        r_utils::eval_r_captured(&format!(r#"tools::Rd2txt(utils::help("{}"))"#, line.args))
     }
 }
 
@@ -85,7 +68,7 @@ impl MagicHandler for Pdef {
                 message: "Usage: %pdef <function>".into(),
             });
         }
-        eval_r_captured(&format!("args({})", line.args))
+        r_utils::eval_r_captured(&format!("args({})", line.args))
     }
 }
 
@@ -109,7 +92,7 @@ impl MagicHandler for Psource {
             });
         }
         // deparse() gives lines of source; capture.output() joins them
-        eval_r_captured(&format!("cat(deparse({}), sep=\"\\n\")", line.args))
+        r_utils::eval_r_captured(&format!("cat(deparse({}), sep=\"\\n\")", line.args))
     }
 }
 
@@ -132,7 +115,7 @@ impl MagicHandler for Pfile {
                 message: "Usage: %pfile <object>".into(),
             });
         }
-        eval_r_captured(&format!(
+        r_utils::eval_r_captured(&format!(
             r#"cat(attr(attr({}, "srcref"), "srcfile")$filename, "\n")"#,
             line.args
         ))
@@ -154,9 +137,9 @@ impl MagicHandler for Who {
     }
     fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
         if line.args.is_empty() {
-            return eval_r_captured("ls()");
+            return r_utils::eval_r_captured("ls()");
         }
-        eval_r_captured(&format!(
+        r_utils::eval_r_captured(&format!(
             r#"Filter(function(x) inherits(get(x), "{}"), ls())"#,
             line.args
         ))
@@ -182,7 +165,7 @@ impl MagicHandler for Whos {
         } else {
             format!("pattern=\"{}\"", line.args)
         };
-        eval_r_captured(&format!(
+        r_utils::eval_r_captured(&format!(
             r#"
 local({{
     objs <- ls({pattern}, envir=.GlobalEnv)
@@ -222,7 +205,7 @@ impl MagicHandler for WhoLs {
         } else {
             format!("pattern=\"{}\"", line.args)
         };
-        eval_r_captured(&format!("cat(sort(ls({pattern})), sep=\"\\n\")"))
+        r_utils::eval_r_captured(&format!("cat(sort(ls({pattern})), sep=\"\\n\")"))
     }
 }
 
@@ -245,7 +228,7 @@ impl MagicHandler for Rm {
                 message: "Usage: %rm <name1> <name2> ...".into(),
             });
         }
-        eval_r_captured(&format!("rm(list=c({}))", line.args))
+        r_utils::eval_r_captured(&format!("rm(list=c({}))", line.args))
     }
 }
 
@@ -263,7 +246,7 @@ impl MagicHandler for Clear {
         "Remove all objects from the global environment"
     }
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_r_captured("rm(list=ls(envir=.GlobalEnv), envir=.GlobalEnv)")
+        r_utils::eval_r_captured("rm(list=ls(envir=.GlobalEnv), envir=.GlobalEnv)")
     }
 }
 
@@ -287,7 +270,7 @@ impl MagicHandler for Str {
             });
         }
         // str() outputs to stderr by default — use str(..., give.attr=FALSE)
-        eval_r_captured(&format!("utils::str({}, give.attr=FALSE)", line.args))
+        r_utils::eval_r_captured(&format!("utils::str({}, give.attr=FALSE)", line.args))
     }
 }
 
@@ -310,7 +293,7 @@ impl MagicHandler for Head {
                 message: "Usage: %head <expression>".into(),
             });
         }
-        eval_r_captured(&format!("head({})", line.args))
+        r_utils::eval_r_captured(&format!("head({})", line.args))
     }
 }
 
@@ -333,7 +316,7 @@ impl MagicHandler for Skim {
                 message: "Usage: %skim <data.frame>".into(),
             });
         }
-        eval_with_pkg_check(&format!("skimr::skim({})", line.args), "skimr")
+        r_utils::eval_with_pkg_check(&format!("skimr::skim({})", line.args), "skimr")
     }
 }
 
@@ -356,7 +339,7 @@ impl MagicHandler for Dim {
                 message: "Usage: %dim <expression>".into(),
             });
         }
-        eval_r_captured(&format!(r#"cat(deparse(dim({})), "\n")"#, line.args))
+        r_utils::eval_r_captured(&format!(r#"cat(deparse(dim({})), "\n")"#, line.args))
     }
 }
 
@@ -379,7 +362,7 @@ impl MagicHandler for Names {
                 message: "Usage: %names <expression>".into(),
             });
         }
-        eval_r_captured(&format!("names({})", line.args))
+        r_utils::eval_r_captured(&format!("names({})", line.args))
     }
 }
 
@@ -430,7 +413,7 @@ impl MagicHandler for Tidy {
                 message: "Usage: %tidy <model>".into(),
             });
         }
-        eval_with_pkg_check(&format!("broom::tidy({})", line.args), "broom")
+        r_utils::eval_with_pkg_check(&format!("broom::tidy({})", line.args), "broom")
     }
 }
 
@@ -608,7 +591,7 @@ impl MagicHandler for Methods {
                 message: "Usage: %methods <function_or_class>".into(),
             });
         }
-        eval_r_captured(&format!("methods({name})"))
+        r_utils::eval_r_captured(&format!("methods({name})"))
     }
 }
 
@@ -632,7 +615,7 @@ impl MagicHandler for Psearch {
                 message: "Usage: %psearch <pattern>".into(),
             });
         }
-        eval_r_captured(&format!(
+        r_utils::eval_r_captured(&format!(
             r#"cat("=== find('{}') ===\n", sep=""); cat(find("{}"), sep="\n"); cat("\n=== apropos('{}') ===\n", sep=""); cat(apropos("{}", ignore.case = TRUE), sep="\n")"#,
             pattern, pattern, pattern, pattern
         ))

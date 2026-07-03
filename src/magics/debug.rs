@@ -1,19 +1,6 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
+use super::r_utils;
 use std::sync::{Mutex, OnceLock};
-
-fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
-    let text = crate::r_runtime::eval_string_raw_global(code).map_err(|e| magic::MagicError {
-        message: e.to_string(),
-    })?;
-    Ok(Output::Text(text))
-}
-
-fn eval_r_silent(code: &str) -> Result<(), magic::MagicError> {
-    crate::r_runtime::eval_string_raw_global(code).map_err(|e| magic::MagicError {
-        message: e.to_string(),
-    })?;
-    Ok(())
-}
 
 /// Xmode verbosity levels.
 pub const XMODE_PLAIN: &str = "plain";
@@ -97,7 +84,7 @@ impl MagicHandler for Where {
         "Show the current call stack (debugger context)"
     }
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_r_captured("where")
+        r_utils::eval_r_captured("where")
     }
 }
 
@@ -114,7 +101,7 @@ impl MagicHandler for Continue {
         "Continue execution in the debugger"
     }
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_r_silent("c")?;
+        r_utils::eval_r_silent("c")?;
         Ok(Output::Silent)
     }
 }
@@ -132,7 +119,7 @@ impl MagicHandler for Traceback {
         "Print the last traceback (use %xmode to set verbosity)"
     }
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_r_captured(&traceback_code())
+        r_utils::eval_r_captured(&traceback_code())
     }
 }
 
@@ -149,7 +136,7 @@ impl MagicHandler for Debug {
         "Enter post-mortem debugger (recover)"
     }
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_r_captured("recover()")
+        r_utils::eval_r_captured("recover()")
     }
 }
 
@@ -168,7 +155,7 @@ impl MagicHandler for Pdb {
     fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
         let args = line.args.trim();
         if args.is_empty() {
-            let result = eval_r_captured("capture.output(cat(deparse(getOption('error'))))")?;
+            let result = r_utils::eval_r_captured("cat(deparse(getOption('error')))")?;
             let current = match &result {
                 Output::Text(t) => t.clone(),
                 _ => format!("{:?}", result),
@@ -177,11 +164,11 @@ impl MagicHandler for Pdb {
         }
         match args {
             "on" => {
-                eval_r_silent("options(error = recover)")?;
+                r_utils::eval_r_silent("options(error = recover)")?;
                 Ok(Output::Text("Post-mortem debugger enabled.\n".into()))
             }
             "off" => {
-                eval_r_silent("options(error = NULL)")?;
+                r_utils::eval_r_silent("options(error = NULL)")?;
                 Ok(Output::Text("Post-mortem debugger disabled.\n".into()))
             }
             _ => Err(magic::MagicError {
@@ -210,7 +197,7 @@ impl MagicHandler for DebugOnce {
                 message: "Usage: %debugonce <function_name>".into(),
             });
         }
-        eval_r_silent(&format!("debugonce({name})"))?;
+        r_utils::eval_r_silent(&format!("debugonce({name})"))?;
         Ok(Output::Silent)
     }
 }
@@ -234,7 +221,7 @@ impl MagicHandler for Undebug {
                 message: "Usage: %undebug <function_name>".into(),
             });
         }
-        eval_r_silent(&format!("undebug({name})"))?;
+        r_utils::eval_r_silent(&format!("undebug({name})"))?;
         Ok(Output::Silent)
     }
 }
