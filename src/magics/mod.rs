@@ -1,4 +1,5 @@
 pub mod config;
+pub mod connections;
 pub mod debug;
 pub mod eda;
 pub mod edit_magic;

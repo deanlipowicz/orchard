@@ -173,6 +173,7 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::eda::Compare));
     registry.register(Arc::new(crate::magics::eda::SessionInfo));
     registry.register(Arc::new(crate::magics::inspect::Inspect));
+    registry.register(Arc::new(crate::magics::connections::Connections));
 
     // P10 — Debug/Config utilities
     registry.register(Arc::new(crate::magics::debug::Xmode));
