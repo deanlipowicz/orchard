@@ -11,6 +11,39 @@ Entries are ordered by date with the newest at the top of the file.
 
 ---
 
+## 2026-07-03 — R_AVAILABLE Guard — Prevent SIGSEGV in R-FFI Tests Without R Initialized
+
+**Goal:** Unit tests in `magics::debug` that call R evaluate (`eval_r_captured`,
+`eval_r_silent`) segfaulted with SIGSEGV because `eval_string_raw_global` called
+R C API functions (`Rf_mkString`, `R_ParseVector`, `R_tryEval`) without the R
+runtime initialized. Only `RRuntime::init()` (called from `main.rs`) runs
+`Rf_initEmbeddedR`, so any test that dispatched a handler using R FFI crashed
+before the assertion could run.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/r_runtime.rs` | Added `R_AVAILABLE` static `AtomicBool` flag, set to `true` after `Rf_initEmbeddedR` succeeds in `RRuntime::init()`. `eval_string_raw_global()` now checks `R_AVAILABLE` before making FFI calls and returns `bail!("R is not initialized ...")` instead of segfaulting. |
+
+Impact: 4 tests that previously crashed now pass cleanly — `debug_returns_text`,
+`pdb_empty_args_does_not_error`, `pdb_on_does_not_error`, `pdb_off_does_not_error`.
+Any other free-function R eval path also benefits from the guard.
+
+**Verification:**
+```
+cargo check              # 0 errors, 0 warnings
+cargo test --lib         # 381 passed, 1 ignored, 0 failed
+cargo test --lib magics  # 105 passed (all magics tests, including all debug handlers)
+```
+
+**Commit:**
+```
+(see HEAD — committed alongside docs updates)
+```
+
+---
+
 ## 2026-07-02 — Cwd-Contextual History (Last v0.4 Feature)
 
 **Goal:** Tag history entries with the working directory they were executed in,

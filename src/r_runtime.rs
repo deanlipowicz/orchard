@@ -309,6 +309,11 @@ static CONSOLE: OnceLock<Mutex<ConsoleState>> = OnceLock::new();
 static SUPPRESS_STDOUT: AtomicBool = AtomicBool::new(false);
 static SUPPRESS_STDERR: AtomicBool = AtomicBool::new(false);
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+/// Whether the R runtime has been initialized via `Rf_initEmbeddedR`.
+/// Free functions that call into R's C API MUST check this flag before
+/// making FFI calls to avoid SIGSEGV when R is not available (e.g. in
+/// unit tests).
+static R_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 pub fn install_console_settings(settings: &Settings) {
     let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
@@ -372,6 +377,9 @@ pub fn get_automagic() -> bool {
 }
 
 pub fn eval_string_raw_global(code: &str) -> anyhow::Result<String> {
+    if !R_AVAILABLE.load(Ordering::SeqCst) {
+        bail!("R is not initialized — cannot evaluate code: {code}");
+    }
     unsafe {
         let protected = eval_code(code)?;
         sexp_to_string(protected.get())
@@ -433,6 +441,7 @@ impl RRuntime {
                 bail!("R initialization failed with status {rc}");
             }
         }
+        R_AVAILABLE.store(true, Ordering::SeqCst);
         Ok(Self {
             repl_initialized: false,
         })

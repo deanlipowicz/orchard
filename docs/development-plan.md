@@ -7,7 +7,7 @@ a ground-up rewrite of the Python radian REPL, with IPython-style magic commands
 schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
-**Current state:** 77 registered magic handlers | 397+ tests (390 lib + 7 magic framework) | Linux only
+**Current state:** 77 registered magic handlers | 388+ tests (381 lib + 7 magic framework) | Linux only
 
 ---
 
@@ -702,7 +702,7 @@ These upstream Python radian features are intentionally deferred or excluded:
 1. **Manual SIGINT test ignored** (`#[ignore]`) — environment-sensitive, not automated. Needs manual acceptance on Linux + macOS.
 2. **macOS not acceptance-tested** — `dyld.rs` code paths may have issues on real hardware.
 3. **R_ParseVector malformed expression workaround** — pointer guard (`0x1000` check) handles R 4.6.x edge case but may mask real errors.
-4. **Handler-level integration tests limited** — handlers that call R FFI (`%objects`, `%time`, etc.) cannot be tested without R initialized; only parse-level and error-path tests exist.
+4. **Handler-level integration tests limited** — handlers that call R FFI (`%objects`, `%time`, etc.) cannot be fully tested without R initialized; only parse-level and error-path tests exist. The `R_AVAILABLE` guard in `eval_string_raw_global` ensures these tests return a clean error rather than SIGSEGV when R is absent.
 5. **No CI pipeline** — no automated build/test on any platform. Fresh `cargo check`/`cargo test` passes manually; automated enforcement for PRs is missing.
 
 ---
@@ -733,7 +733,7 @@ These upstream Python radian features are intentionally deferred or excluded:
 
 ```bash
 cargo check                             # 0 errors, 0 warnings
-cargo test --lib --no-fail-fast         # 390 passed
+cargo test --lib --no-fail-fast         # 381 passed, 1 ignored
 cargo test --test magic_framework       # 7 passed
 cargo clippy                            # 0 warnings
 ```
@@ -743,6 +743,7 @@ For completion tests:
 cargo test --lib completion             # 50+ tests (schema, fuzzy, magic arg, function arg, spellcheck)
 cargo test --lib levenshtein            # Levenshtein distance tests
 cargo test --lib test_shell_sx_echo -- --ignored  # R-dependent test
+cargo test --lib magics::debug          # 27 tests (debug magics — no R needed after R_AVAILABLE guard)
 ```
 
 For data inspector integration tests (requires R):
