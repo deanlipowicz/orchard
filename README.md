@@ -15,7 +15,7 @@ Autocomplete and autosuggest from zsh and fish. orchard doesn't try to be an
 IDE — it tries to be the best REPL you've ever paired with your editor.
 
 - **Repository:** [github.com/deanlipowicz/orchard](https://github.com/deanlipowicz/orchard)
-- **Status:** v0.2 · 47 magic handlers · 307 tests · Linux
+- **Status:** v0.5 · 77 magic handlers · 212+ tests · Linux
 - **Docs:** [Development plan](docs/development-plan.md) · [Developer log](docs/developer-log.md) · [Specs](docs/superpowers/specs/) · [Plans](docs/superpowers/plans/)
 
 ---
@@ -168,7 +168,7 @@ the parts worth keeping.
 
 orchard is young and welcomes contributions. The codebase is organized around a
 few clear subsystems: the R runtime bridge (`r_runtime.rs`), the magic registry
-(`magic.rs` / `magics/`), the 14-backend completion engine (`completion.rs`),
+(`magic.rs` / `magics/`), the 14-backend completion engine (`completion/mod.rs`),
 and the reedline prompt layer (`prompt.rs`).
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for build instructions, test commands,

@@ -45,17 +45,17 @@ orchard is organized around a few big pieces. Here's a quick tour:
 The heart of the project. Sets up embedded R via bindgen, registers console
 callbacks (stdout, stderr, Ctrl-C, resizing), and runs the read-eval-print
 loop. This is where magic dispatch happens — every line of input is checked
-for shell mode (`;`), introspection (`?`), magic commands (`%`), or inline
-shell (`!`) before it ever reaches R.
+for shell mode (`;`), introspection (`?`/`??`), or magic commands (`%`)
+before it ever reaches R.
 
 ### Magic registry (`src/magic.rs`, `src/magics/`)
-All 47 magic commands live here. The registry maps command names (like `%sql`
-or `%timeit`) to handler structs that implement the `MagicHandler` trait. Each
+All 77 magic commands live here. The registry maps command names (like `%tb`
+or `%summary`) to handler structs that implement the `MagicHandler` trait. Each
 handler lives in its own file under `magics/`. Adding a new magic is
 straightforward — define the struct, implement `MagicHandler`, and register it
-in `mod.rs`.
+in `register_all()` in `magic.rs`.
 
-### Completion engine (`src/completion.rs`)
+### Completion engine (`src/completion/mod.rs`)
 Fourteen completion backends, coordinated through a single completer. When you
 hit Tab, the engine checks your context — are you after a `$`? Inside a function
 call? Typing a LaTeX symbol? — and picks the right backend. The fuzzy-matcher
@@ -68,9 +68,9 @@ input validator, and keybindings. This is where the editing experience gets
 built.
 
 ### Shell integration (`src/shell.rs`)
-Handles `;` shell mode (persistent and one-shot), `!` inline execution, `cd`,
-and environment variable expansion. Shell state is tracked separately from R's
-working directory.
+Handles `;` shell mode (persistent and one-shot), `cd`, and environment
+variable expansion. Shell state is tracked separately from R's working
+directory.
 
 ### Settings (`src/settings.rs`)
 Everything configurable — prompt colors, completion behavior, history size —
