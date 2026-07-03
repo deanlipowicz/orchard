@@ -459,6 +459,27 @@ impl MagicHandler for Dev {
                 message: e.to_string(),
             })?;
             Ok(Output::Text("Closed current graphics device.\n".into()))
+        } else if args == "capture" {
+            // Close current device, find latest plot PNG, display inline
+            r_runtime::eval_string_raw_global("dev.off()").ok();
+            let png_path = crate::terminal_graphics::latest_plot();
+            match png_path {
+                Some(path) => match crate::terminal_graphics::display_png(&path) {
+                    Ok(true) => {
+                        let _ = std::fs::remove_file(&path);
+                        Ok(Output::Silent)
+                    }
+                    Ok(false) => Ok(Output::Text(format!(
+                        "Plot captured to: {}\n",
+                        path.display()
+                    ))),
+                    Err(e) => Ok(Output::Text(format!(
+                        "Plot saved to: {} (display error: {e})\n",
+                        path.display()
+                    ))),
+                },
+                None => Ok(Output::Text("No plot files found to capture.\n".into())),
+            }
         } else if args == "off all" {
             r_runtime::eval_string_raw_global("while (length(dev.list()) > 0) dev.off()").map_err(
                 |e| magic::MagicError {
@@ -475,7 +496,7 @@ impl MagicHandler for Dev {
             Ok(Output::Text(format!("Switched to device {n}.\n")))
         } else {
             Err(magic::MagicError {
-                message: "Usage: %dev [list | <n> | off | off all]".into(),
+                message: "Usage: %dev [list | <n> | off | off all | capture]".into(),
             })
         }
     }

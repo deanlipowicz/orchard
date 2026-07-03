@@ -53,6 +53,9 @@ fn main() -> anyhow::Result<()> {
     r_runtime::install_console_settings(&settings);
     r_runtime::install_history(history::History::new(&cli, &settings)?);
 
+    // Redirect R's default graphics device to PNG capture for inline display.
+    runtime.setup_plot_capture()?;
+
     runtime.run_repl();
     Ok(())
 }

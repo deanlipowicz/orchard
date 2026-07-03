@@ -546,6 +546,21 @@ impl RRuntime {
         input_hook::remove();
     }
 
+    /// Set R's default graphics device to a PNG capture that writes to
+    /// orchard's plot temp directory.  All R `plot()` / `ggplot()` etc.
+    /// calls will create PNG files instead of opening X11/Cairo windows.
+    pub fn setup_plot_capture(&mut self) -> anyhow::Result<()> {
+        // Use eval_void so this runs as R code inside the embedded session.
+        // We point the default device at a png() call that writes a
+        // timestamped file into the system temp dir under orchard_plots/.
+        self.eval_void(
+            r#"options(device = function() {
+  png(file.path(tempdir(), paste0("orchard_plot_", as.integer(Sys.time() * 1e6), ".png")),
+      width = 800, height = 600)
+})"#,
+        )
+    }
+
     pub fn init_repl(&mut self) {
         if !self.repl_initialized {
             unsafe { ffi::R_ReplDLLinit() };

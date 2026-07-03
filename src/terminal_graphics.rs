@@ -28,6 +28,18 @@ pub fn new_plot_path() -> PathBuf {
     plot_temp_dir().join(format!("plot_{timestamp}.png"))
 }
 
+/// Return the most recent PNG file in the plot temp directory, if any.
+pub fn latest_plot() -> Option<PathBuf> {
+    let dir = plot_temp_dir();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "png"))
+        .collect();
+    entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().ok().and_then(|m| m.modified().ok())));
+    entries.first().map(|e| e.path())
+}
+
 // ---------------------------------------------------------------------------
 // Protocol detection
 // ---------------------------------------------------------------------------
