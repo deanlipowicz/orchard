@@ -1,6 +1,7 @@
 use crate::{
     cli::Cli,
     editing_hook,
+    editor_bridge,
     history::{History, OrchardHistoryBackend},
     magic::{self, Output as MagicOutput},
     prompt::{PromptSession, ReadResult},
@@ -884,6 +885,27 @@ fn read_console_interactive(
     len: c_int,
 ) -> c_int {
     loop {
+        // Drain any editor-sent code before blocking on reedline.
+        // Editor code is evaluated while R is idle (between prompts).
+        while let Some(job) = editor_bridge::try_recv_editor_code() {
+            let result = eval_string_raw_global(&job.code);
+            let (status, output) = match result {
+                Ok(out) => ("ok".to_string(), out),
+                Err(e) => ("error".to_string(), e.to_string()),
+            };
+            let resp = editor_bridge::EditorResponse {
+                id: job.id,
+                status,
+                output: output.clone(),
+            };
+            // Send response back to the waiting connection handler.
+            let _ = job.response_tx.send(resp);
+            if job.echo {
+                print!("> {}\n{}", job.code, output);
+            }
+            io::stdout().flush().ok();
+            continue; // skip reedline — recheck for more messages
+        }
         let mut session = {
             let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));
             let mut state = console.lock().unwrap();
