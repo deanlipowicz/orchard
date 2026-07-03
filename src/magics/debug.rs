@@ -389,18 +389,6 @@ mod tests {
     }
 
     #[test]
-    fn debug_returns_text() {
-        let handler = Debug;
-        let line = MagicLine {
-            name: "debug".into(),
-            args: "".into(),
-            is_cell: false,
-        };
-        let result = handler.run(&line);
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
     fn pdb_registered() {
         let reg = crate::magic::magic_registry().lock().unwrap();
         assert!(reg.get("pdb").is_some());
