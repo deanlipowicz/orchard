@@ -7,7 +7,7 @@ a ground-up rewrite of the Python radian REPL, with IPython-style magic commands
 schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
-**Current state:** 79 registered magic handlers | 436 tests | Linux only
+**Current state:** 79 registered magic handlers | 443 tests | Linux only
 **Next:** v0.5-v1.0 (debugger, TUI inspector, editor bridge, extension system, release)
 **Vision (v2.0):** Rich output (SVG/HTML), multithreaded R runtime, plugin architecture
 
@@ -78,7 +78,7 @@ Data Inspector (v0.3):
 | v0.3 | EDA core + editor loop | ✅ PASS | 59 handlers, comfy-table inspect |
 | v0.4 | History replay + reproducibility | ✅ PASS | 66 handlers, cwd-contextual history |
 | v0.5 | Debugger + fuzzy completion | ✅ PASS | 77 handlers, 8 debug handlers, ? modal help |
-| v0.6 | TUI inspector + inline plots | ✅ Phase 1 (text) + Phase 2 (TUI) done; %dev + %plots done | See roadmap |
+| v0.6 | TUI inspector + inline plots | ✅ PASS | 79 handlers, TUI popup, inline plots (Kitty/Sixel/iTerm2), %dev, %plots |
 | v0.7 | Package mode + editor bridge | 🔲 Planned | See roadmap |
 | v0.8 | Quality of life | 🔲 Planned | See roadmap |
 | v0.9 | Platform + packaging | 🔲 Planned | macOS hardware |
@@ -347,17 +347,24 @@ Renders any R data object as a formatted table:
 ### Implementation Strategy
 
 **Phase 1 — Text table (v0.3, comfy-table):**
-- [ ] Add `comfy-table` dependency
-- [ ] Implement R metadata extraction (column names, types, stats, sample values)
-- [ ] Handle cross-engine detection: DuckDB, Arrow, tidyverse, vanilla R, Stan, Rcpp, JS
-- [ ] Rust-side table layout engine
-- [ ] `%inspect <name>` handler
+- [x] Add `comfy-table` dependency
+- [x] Implement R metadata extraction (column names, types, stats, sample values)
+- [x] Handle cross-engine detection: DuckDB, Arrow, tidyverse, vanilla R, Stan, Rcpp, JS
+- [x] Rust-side table layout engine
+- [x] `%inspect <name>` handler
 
 **Phase 2 — TUI popup (v0.6, ratatui):**
-- [ ] Add `ratatui` dependency
-- [ ] Interactive scroll, sort by column
-- [ ] Cell value preview for long content
-- [ ] Responsive column width auto-sizing
+- [x] Add `ratatui` dependency
+- [x] Interactive scroll, sort by column
+- [x] Cell value preview for long content
+- [x] Responsive column width auto-sizing
+
+**Phase 3 — Inline plots (v0.6):**
+- [x] Terminal protocol detection (Kitty, Sixel, iTerm2)
+- [x] PNG device capture via `%plot`
+- [x] Kitty graphics protocol rendering
+- [x] Sixel rendering (via ImageMagick/ffmpeg)
+- [x] iTerm2 inline images protocol
 
 ---
 
