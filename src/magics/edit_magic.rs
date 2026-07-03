@@ -181,10 +181,19 @@ impl MagicHandler for Edit {
         "edit"
     }
     fn description(&self) -> &'static str {
-        "Open R code in external editor (vim by default)"
+        "Open R code in external editor (vim by default). %edit -g <fn> goes to definition"
     }
     fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
         let args = line.args.trim();
+
+        // Check for -g / --goto flag → jump to function definition via srcref.
+        if let Some(fn_name) = args
+            .strip_prefix("-g ")
+            .or_else(|| args.strip_prefix("--goto "))
+        {
+            return jump_to_function(fn_name);
+        }
+
         let (path, backup) = resolve_edit_target(args)?;
         let editor = std::env::var("R_EDITOR")
             .or_else(|_| std::env::var("EDITOR"))
@@ -221,6 +230,78 @@ impl MagicHandler for Edit {
             Ok(Output::Text("(empty file, nothing sourced)\n".into()))
         }
     }
+}
+
+/// Resolve a function name to its source file and line via R's srcref, then
+/// open `$EDITOR +<line> <file>` to jump to the definition.
+fn jump_to_function(fn_name: &str) -> Result<Output, magic::MagicError> {
+    let fn_name = fn_name.trim();
+    if fn_name.is_empty() {
+        return Err(magic::MagicError {
+            message: "Usage: %edit -g <function_name>".into(),
+        });
+    }
+
+    // R code to resolve srcref: returns "file\nline" or errors.
+    let r_code = format!(
+        r#"local({{
+  fn <- getAnywhere("{fn_name}")
+  if (length(fn$objs) == 0L) stop("Function '{fn_name}' not found")
+  obj <- fn$objs[[1L]]
+  srcref <- attr(obj, "srcref")
+  if (is.null(srcref)) {{
+    b <- body(obj)
+    if (!is.null(b)) srcref <- attr(b, "srcref")
+  }}
+  if (is.null(srcref)) stop("No source reference available for '{fn_name}'")
+  srcfile <- attr(srcref, "srcfile")$filename
+  if (is.null(srcfile) || srcfile == "") stop("No source file found for '{fn_name}'")
+  line <- srcref[1L]
+  cat(srcfile, "\n", line, "\n", sep = "")
+}})
+"#
+    );
+
+    let output =
+        crate::r_runtime::eval_string_raw_global(&r_code).map_err(|e| magic::MagicError {
+            message: e.to_string(),
+        })?;
+
+    // Parse the two-line output: file path on line 1, line number on line 2.
+    let mut lines = output.lines();
+    let file = lines.next().unwrap_or("").to_string();
+    let line_str = lines.next().unwrap_or("").to_string();
+
+    if file.is_empty() || line_str.is_empty() {
+        return Err(magic::MagicError {
+            message: format!("Could not resolve source location for '{fn_name}'"),
+        });
+    }
+
+    let line_num: usize = line_str.parse().unwrap_or(1);
+    let editor = std::env::var("R_EDITOR")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vim".to_string());
+
+    // Build editor args with line jump: `editor +<line> <file>`
+    // This works for vim, nvim, emacsclient, and most editors.
+    let status = Command::new(&editor)
+        .arg(format!("+{line_num}"))
+        .arg(&file)
+        .status()
+        .map_err(|e| magic::MagicError {
+            message: format!("Failed to launch editor '{editor}': {e}"),
+        })?;
+
+    if !status.success() {
+        return Err(magic::MagicError {
+            message: format!("Editor '{editor}' exited with error"),
+        });
+    }
+
+    Ok(Output::Text(format!(
+        "Opened {file} at line {line_num} ({editor})\n"
+    )))
 }
 
 #[cfg(test)]
@@ -414,5 +495,46 @@ mod tests {
             is_cell: false,
         };
         let _result = Edit.run(&line);
+    }
+
+    // --- jump_to_function tests ---
+
+    #[test]
+    fn jump_to_function_empty_name() {
+        let result = jump_to_function("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Usage:"));
+    }
+
+    #[test]
+    fn jump_to_function_whitespace_name() {
+        let result = jump_to_function("   ");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Usage:"));
+    }
+
+    #[test]
+    fn edit_g_flag_detected() {
+        // The -g flag should bypass resolve_edit_target and go to jump_to_function.
+        // This will try to evaluate R, which may fail if R isn't initialized.
+        let line = MagicLine {
+            name: "edit".into(),
+            args: "-g myfunction".into(),
+            is_cell: false,
+        };
+        let result = Edit.run(&line);
+        match result {
+            Ok(_) => {} // R available, function may or may not exist
+            Err(e) => {
+                // Accept R-not-available or function-not-found errors
+                assert!(
+                    e.message.contains("R is not initialized")
+                        || e.message.contains("not found")
+                        || e.message.contains("No source"),
+                    "unexpected error: {}",
+                    e.message
+                );
+            }
+        }
     }
 }
