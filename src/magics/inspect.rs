@@ -1,6 +1,6 @@
+use super::r_utils;
 use crate::magic::{self, MagicHandler, MagicLine, Output};
 use crate::r_runtime;
-use super::r_utils;
 use comfy_table::{Attribute, Cell, CellAlignment, ContentArrangement, Table, presets::UTF8_FULL};
 
 // ---------------------------------------------------------------------------
@@ -508,7 +508,7 @@ fn render_tabular(data: &str, expr: &str) -> String {
     format!("{table}{footer}\n")
 }
 
-fn build_inspect_code(expr: &str) -> String {
+pub(crate) fn build_inspect_code(expr: &str) -> String {
     format!(
         r#"local({{
   x <- {expr}
@@ -550,6 +550,24 @@ impl MagicHandler for Inspect {
             });
         }
 
+        #[cfg(feature = "tui")]
+        {
+            // Try TUI mode first. If the object is non-tabular, fall through
+            // to the comfy-table text rendering below.
+            match crate::magics::inspect_tui::fetch_inspect_data(expr) {
+                Ok(data) => {
+                    crate::magics::inspect_tui::run_tui_inspect(data)
+                        .unwrap_or_else(|e| eprintln!("TUI inspect error: {e}"));
+                    return Ok(Output::Silent);
+                }
+                Err(e) if e.message.contains("not tabular") => {
+                    // Fall through to non-TUI path
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        // Non-TUI fallback (also used when `tui` feature is disabled)
         let code = build_inspect_code(expr);
         let result = r_runtime::eval_string_raw_global(&code).map_err(|e| magic::MagicError {
             message: e.to_string(),
