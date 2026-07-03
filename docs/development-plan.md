@@ -7,7 +7,9 @@ a ground-up rewrite of the Python radian REPL, with IPython-style magic commands
 schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
-**Current state:** 77 registered magic handlers | 388+ tests (381 lib + 7 magic framework) | Linux only
+**Current state:** 77 registered magic handlers | 414+ tests | Linux only
+**Next:** v0.5-v1.0 (debugger, TUI inspector, editor bridge, extension system, release)
+**Vision (v2.0):** Rich output (SVG/HTML), multithreaded R runtime, plugin architecture
 
 ---
 
@@ -605,22 +607,136 @@ Automatically re-source modified R files detected by filesystem watcher
 
 **Subtotal:** ~10h
 
-### Release Criteria (v1.0)
+### v2.0 — Rich Output + Concurrency + Extensibility
+
+**Target:** 95+ handlers, 500+ tests, Linux + macOS + Windows
+**Focus:** Rich rendering (SVG/HTML), multithreaded R runtime, and a plugin system
+that lets users ship their own magic handlers and completion backends.
+
+---
+
+#### Rich Output Rendering
+
+orchard currently emits plain text. v2.0 adds a display pipeline that routes
+R output through MIME-type-aware renderers, matching IPython's `_repr_svg_`,
+`_repr_html_`, and display system.
+
+| Feature | Description | Effort |
+|---------|-------------|-------|
+| MIME display dispatch | `DisplayOutput` enum with `Text`, `Html`, `Svg`, `Png`, `Latex` variants | 4h |
+| HTML rendering | Terminal HTML via `ratatui` inline widgets or an embedded webview popup | 6h |
+| SVG rendering | Rasterize SVG to terminal-appropriate ASCII/braille art, or launch image viewer | 5h |
+| `repr_*` protocol | R S3 generics `repr.html()`, `repr.svg()`, `repr.png()` mirroring IPython's `_repr_*_` pattern | 3h |
+| Plot display integration | Hook into R's `recordPlot()` / `grid.echo()` to capture ggplot2/lattice plots automatically | 4h |
+| `%display` magic | Toggle display backends per session: `%display svg`, `%display html`, `%display text` | 1h |
+| `%render` magic | Force-render an object with a specific backend: `%render svg my_plot` | 1h |
+| Image cache | Disk cache for rendered outputs with LRU eviction, shared across sessions | 2h |
+
+**Subtotal:** ~26h
+
+**Design constraint:** The display pipeline must not block the REPL. Rendered
+output is computed in a background thread and displayed when ready, with the
+REPL remaining responsive during rendering. Large plots or HTML tables should
+stream incrementally when possible.
+
+---
+
+#### Multithreaded R Runtime
+
+Orchard's current architecture is single-threaded: a single R event loop with
+`OnceLock<Mutex<...>>` globals for all shared state. This blocks the REPL during
+any long-running R evaluation. v2.0 introduces a session model that isolates R
+contexts and enables concurrent evaluation.
+
+| Feature | Description | Effort |
+|---------|-------------|-------|
+| Session pool manager | `RSessionPool` spawning N R child processes via IPC (stdin/stdout pipe protocol) | 8h |
+| `%bg` magic | Background evaluation: `%bg long_running_computation()` → returns a future handle | 4h |
+| `%jobs` magic | List active background jobs with status, elapsed time, and memory usage | 2h |
+| `%cancel` magic | Cancel a running background job | 1h |
+| `AsyncEval` output variant | Non-blocking `MagicOutput::AsyncEval(JobId)` that resolves later | 3h |
+| Session isolation | Each session has independent `R_GlobalEnv`, search path, and working directory | 5h |
+| Shared memory transfer | Zero-copy data transfer between sessions via `R_Serialize`/`R_Unserialize` over shared memory or Unix domain sockets | 5h |
+| Thread-safe completion | Completion caches (`SchemaEntry`, `SpellcheckEntry`) upgraded to `RwLock` for concurrent read access | 3h |
+| Session-aware history | History entries tagged with session ID; `%hist --session=2` to filter | 2h |
+| `future` integration | R `future` package compatibility — orchard sessions as `plan(multisession)` backends | 4h |
+
+**Subtotal:** ~37h
+
+**Design constraint:** The session model should feel transparent to the user. A
+single REPL frontend manages N backend R processes. `%bg` and `%jobs` provide
+explicit control. The default mode remains single-session, matching current
+behavior. Multithreading is opt-in per operation, not a global mode switch.
+
+---
+
+#### Extensibility (Plugin System)
+
+Orchard's 77 magic handlers and 14 completion backends are all hard-coded. v2.0
+adds a plugin architecture so users can ship their own handlers, completers, and
+display renderers as standalone Rust crates or R packages.
+
+| Feature | Description | Effort |
+|---------|-------------|-------|
+| Plugin trait system | `Plugin` trait with `init()`, `magics()`, `completers()`, `renderers()` hooks | 4h |
+| Dynamic loading | `dlopen`/`libloading` plugin discovery from `~/.orchard/plugins/` directory | 5h |
+| R package plugins | R packages with an `orchard.yml` manifest that register magics and completers from R code | 6h |
+| Plugin manifest | TOML or YAML manifest: `name`, `version`, `magics`, `completers`, `renderers`, `requires` | 2h |
+| `%plugin` magic | List, load, reload, unload plugins: `%plugin list`, `%plugin load myplugin`, `%plugin reload myplugin` | 2h |
+| Plugin isolation | Plugins run in their own R environment (`orchard.plugins:<name>`) to avoid namespace conflicts | 3h |
+| Completion backend registration | `register_completer(name, priority, callback)` API for third-party completers | 2h |
+| Plugin CLI | `orchard plugin init myplugin` scaffolding, `orchard plugin build`, `orchard plugin test` | 3h |
+| Plugin registry | Community plugin index (Git repo with curated list + install instructions) | 2h |
+| Sandboxing | Optional `--plugin-sandbox` flag that restricts plugin filesystem and network access | 3h |
+
+**Subtotal:** ~32h
+
+**Design constraint:** Plugins should be discoverable and versioned. The manifest
+format is stable and semver-aware. Plugin loading failures must never crash the
+REPL — they degrade gracefully with an error message. Rust plugins are loaded
+via `libloading`; R plugins are loaded via `source()` into an isolated environment.
+
+---
+
+### Release Criteria (v2.0)
 
 | Criterion | Requirement |
 |-----------|-------------|
-| Magic handlers | 85+ (all IPython parity resolved) |
-| Data inspector | Cross-engine TUI with interactive scrolling |
-| Schema autocomplete | `$`/`@`/`[[`/${bind}${bind}${bind}${bind}${bind}tidyverse pipe and data.table bracket completion |
-| Editor bridge | Socket/pipe protocol + `%edit -g` srcref jump |
-| Package mode | `]` renv/pak modal interface |
-| Tests | 300+ passing, 0 failed |
-| CI | Linux + macOS automated |
-| Documentation | Feature guide, migration guide, API docs |
-| Release | Binary packages for Linux |
-| Platform | Linux tested, macOS beta-supported |
+| Rich output | SVG and HTML rendering with `repr_*` protocol in R |
+| Multithreading | Background R evaluation via `%bg`/`%jobs` with session pool |
+| Plugin system | Loadable plugins from `~/.orchard/plugins/` with magic + completion registration |
+| Magic handlers | 95+ (includes plugin-contributed) |
+| Tests | 500+ passing, 0 failed |
+| CI | Linux + macOS + Windows automated |
+| Platform | All three platforms fully supported and tested |
+| Documentation | Plugin developer guide, API reference, rich output tutorial |
+| Performance | REPL latency < 10ms on idle; background evaluation does not block input |
 
 ---
+
+### v2.0 Design Decisions
+
+1. **Session pool over threads.** R is fundamentally single-threaded (no
+   `R_GlobalEnv` sharing across threads). The session model spawns child R
+   processes connected via pipe IPC. This is the same pattern RStudio and
+   Jupyter use — it's battle-tested and avoids the GIL-like constraints of
+   R's C API.
+
+2. **Terminal-first rendering.** SVG and HTML are rendered to terminal-safe
+   representations by default (braille-art for plots, colored tables for HTML).
+   An optional `--gui` flag launches a webview for full-fidelity rendering.
+   This keeps orchard's core promise: a REPL that loves living in a terminal.
+
+3. **Rust plugins, not Lua.** Extensions are Rust crates loaded via `libloading`,
+   or R packages loaded via the existing `eval_string_raw_global` path. No
+   scripting language runtime in between. This is opinionated but consistent
+   with orchard's "no dependency tangles" philosophy.
+
+4. **Backward compatibility.** v2.0 is additive. All v1.0 magics, completions,
+   and configuration options continue to work unchanged. New features are opt-in.
+
+---
+
 
 ## Feature Count Trajectory
 
@@ -636,7 +752,7 @@ v0.6: 79 handlers (+2: %inspect TUI popup, %dev, %plots)
 v0.7: 83 handlers (+4: ] package mode, %import, %connections, %repro)
 v0.8: 87 handlers (+4: snippets, %z, %copy, notify)
 v0.9: 87 handlers (infrastructure: packaging, docs, macOS, CI)
-v1.0: 90+ handlers (+3: load_ext, reload_ext, unload_ext + %% cell magics + In/Out caching)
+v2.0: 95+ handlers (+15: plugin-contributed, +%bg/%jobs/%cancel, +%display/%render, +%plugin)
 ```
 
 ---
