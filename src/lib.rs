@@ -3,9 +3,9 @@ pub mod cli;
 
 pub mod completion;
 
-pub mod editor_bridge;
 pub mod dyld;
 pub mod editing_hook;
+pub mod editor_bridge;
 pub mod env_setup;
 pub mod frequency;
 pub mod history;

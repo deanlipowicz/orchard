@@ -79,11 +79,7 @@ fn end_to_end_send_and_receive_json() {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     let mut writer = &stream;
-    writeln!(
-        writer,
-        r#"{{"id":"test1","code":"1+1","echo":false}}"#
-    )
-    .unwrap();
+    writeln!(writer, r#"{{"id":"test1","code":"1+1","echo":false}}"#).unwrap();
 
     let mut reader = BufReader::new(&stream);
     let mut response = String::new();

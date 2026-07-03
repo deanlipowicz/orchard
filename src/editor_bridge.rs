@@ -272,15 +272,13 @@ mod tests {
 
     #[test]
     fn editor_request_missing_id_rejected() {
-        let result: Result<EditorRequest, _> =
-            serde_json::from_str(r#"{"code":"1+1"}"#);
+        let result: Result<EditorRequest, _> = serde_json::from_str(r#"{"code":"1+1"}"#);
         assert!(result.is_err());
     }
 
     #[test]
     fn editor_request_default_echo_true() {
-        let req: EditorRequest =
-            serde_json::from_str(r#"{"id":"1","code":"1+1"}"#).unwrap();
+        let req: EditorRequest = serde_json::from_str(r#"{"id":"1","code":"1+1"}"#).unwrap();
         assert!(req.echo);
     }
 
@@ -290,12 +288,18 @@ mod tests {
     fn resolve_socket_path_xdg() {
         let prior = std::env::var("XDG_RUNTIME_DIR").ok();
         // Safety: test runs single-threaded; env var manipulation is sound.
-        unsafe { std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000"); }
+        unsafe {
+            std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
+        }
         let path = resolve_socket_path();
         assert_eq!(path, PathBuf::from("/run/user/1000/orchard.sock"));
         match prior {
-            Some(v) => unsafe { std::env::set_var("XDG_RUNTIME_DIR", v); },
-            None => unsafe { std::env::remove_var("XDG_RUNTIME_DIR"); },
+            Some(v) => unsafe {
+                std::env::set_var("XDG_RUNTIME_DIR", v);
+            },
+            None => unsafe {
+                std::env::remove_var("XDG_RUNTIME_DIR");
+            },
         }
     }
 
@@ -303,15 +307,21 @@ mod tests {
     fn resolve_socket_path_tmp_fallback() {
         let prior = std::env::var("XDG_RUNTIME_DIR").ok();
         // Safety: test runs single-threaded; env var manipulation is sound.
-        unsafe { std::env::remove_var("XDG_RUNTIME_DIR"); }
+        unsafe {
+            std::env::remove_var("XDG_RUNTIME_DIR");
+        }
         let path = resolve_socket_path();
         // Should be /tmp/orchard-<uid>.sock
         let s = path.to_string_lossy();
         assert!(s.starts_with("/tmp/orchard-"), "got {s}");
         assert!(s.ends_with(".sock"), "got {s}");
         match prior {
-            Some(v) => unsafe { std::env::set_var("XDG_RUNTIME_DIR", v); },
-            None => unsafe { std::env::remove_var("XDG_RUNTIME_DIR"); },
+            Some(v) => unsafe {
+                std::env::set_var("XDG_RUNTIME_DIR", v);
+            },
+            None => unsafe {
+                std::env::remove_var("XDG_RUNTIME_DIR");
+            },
         }
     }
 
