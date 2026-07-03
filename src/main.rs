@@ -1,6 +1,8 @@
 use anyhow::Context;
-use orchard::{cli, dyld, env_setup, history, profile, r_discovery, r_runtime, settings, util};
-use std::io::IsTerminal;
+use orchard::{
+    cli, dyld, editor_bridge, env_setup, history, profile, r_discovery, r_runtime, settings, util,
+};
+use std::io::{IsTerminal, Write};
 
 fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse_args();
@@ -29,6 +31,23 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // --send mode: connect to running orchard, send code, print response, exit.
+    // This does NOT initialize R — it's a client, not a server.
+    if let Some(code) = &cli.send {
+        let path = editor_bridge::resolve_socket_path();
+        match editor_bridge::send_code(&path, code) {
+            Ok(resp) => {
+                write!(std::io::stdout(), "{}", resp.output)?;
+                std::io::stdout().flush()?;
+                std::process::exit(if resp.status == "ok" { 0 } else { 1 });
+            }
+            Err(e) => {
+                eprintln!("Error sending code to orchard: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let cli = cli.expanded();
     env_setup::apply(&cli, &r)?;
     dyld::repair_and_reexec_if_needed(&r.home)?;
@@ -55,6 +74,16 @@ fn main() -> anyhow::Result<()> {
 
     // Redirect R's default graphics device to PNG capture for inline display.
     runtime.setup_plot_capture()?;
+
+    // Start editor socket listener so editors can send code to the REPL.
+    // The SocketGuard removes the socket file on normal exit.
+    let socket_path = editor_bridge::resolve_socket_path();
+    let _socket_guard = editor_bridge::SocketGuard {
+        path: socket_path.clone(),
+    };
+    if let Err(e) = editor_bridge::run_listener(&socket_path) {
+        eprintln!("Warning: could not start editor socket: {e}");
+    }
 
     runtime.run_repl();
     Ok(())

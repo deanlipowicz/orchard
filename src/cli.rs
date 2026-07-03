@@ -34,6 +34,8 @@ pub struct Cli {
     pub restore_data: bool,
     #[arg(long)]
     pub debug: bool,
+    #[arg(long)]
+    pub send: Option<String>,
 }
 
 impl Cli {
