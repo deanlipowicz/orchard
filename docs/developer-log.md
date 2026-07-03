@@ -6,8 +6,7 @@ Entries are ordered by date with the newest at the top of the file.
 
 **Related documents:**
 - Active roadmap: `docs/development-plan.md`
-- Feature specs: `docs/superpowers/specs/`
-- Implementation plans: `docs/superpowers/plans/`
+- Past specs and plans: incorporated inline below (archived after delivery)
 
 ---
 
@@ -2762,5 +2761,203 @@ This entry's "49" and "144" values are preserved as the state as of the time of
 writing. The development plan (`docs/development-plan.md`) was subsequently
 rewritten with verified counts on 2026-07-02 after removing redundant docs
 (`DEVELOPMENT_PLAN.md` root stub, `docs/review-2026-07-01.md`).
+
+---
+
+## 2026-06-29 — History Backend Design (Spec)
+
+**Design for:** Connecting radian's loaded history file to reedline's interactive
+navigation (Ctrl-R, up/down arrow search) via a `RadianHistoryBackend` wrapping
+radian's `History` struct.
+
+**Key decisions:** Backend rebuilt from file on every session startup (ephemeral
+index). Mode compatibility: r/browse share history book, shell is separate,
+unknown shows all. Tombstone deletion strategy for ID stability.
+
+**Files affected:** `src/history.rs`, `src/prompt.rs`
+**Verification:** 4 unit tests: backend seeding, save delegation, mode-filtered
+search, substring search.
+
+---
+
+## 2026-06-29 — Milestone D Phase 2 Pre-Edit Hook Design (Spec)
+
+**Design for:** Buffer-context-aware editing features: smart backspace,
+closing-delimiter skip, Enter auto-indentation, context-aware Tab, auto-pairs,
+bracketed-paste auto-submit.
+
+**Key decisions:** Lightweight fork of reedline 0.48.0 source into
+`vendor/reedline/` with a new pre-edit hook callback. Replaces crates.io
+dependency with path dependency.
+
+**Files affected:** `vendor/reedline/`, `Cargo.toml`
+
+---
+
+## 2026-06-30 — macOS Acceptance Plan (Plan)
+
+**Plan for:** Validating orchard builds, runs, and passes tests on macOS with
+both Homebrew R and CRAN R installations.
+
+**Key decisions:** No macOS CI matrix implemented — requires physical Mac
+hardware for manual testing (9-item checklist).
+
+**Verification:** 9-item checklist covering build, R discovery, REPL smoke
+tests, dyld path repair, full test suite, LaTeX completions, autosuggest,
+custom keybindings, bracket matching.
+
+---
+
+## 2026-07-01 — Magic Command Framework Design (Spec)
+
+**Design for:** IPython-style magic commands (`%`/`%%` prefix) in the Rust REPL.
+Defines dispatch architecture: `MagicRegistry`, `MagicHandler` trait, `MagicLine`/
+`Output`/`MagicError` types, cell magic accumulation loop, and automagic with R
+function conflict detection via `Rf_findFun`.
+
+**Key decisions:** Dispatch is read-only after startup via `LazyLock<MagicRegistry>`
+— no mutex on hot path. Automagic checks `Rf_findFun` at line time.
+Cell magic intermediate lines not pushed to reedline history.
+
+**Files affected:** `src/magic.rs`, `src/magics/`
+**Verification:** 4 unit test modules (parser, registry, automagic, lsmagic)
+plus integration test with test-only `%ping` handler.
+
+---
+
+## 2026-07-02 — CI Pipeline (Spec + Plan)
+
+**Design for:** GitHub Actions CI with 4 parallel jobs: fmt, clippy, test,
+test-r (R integration). Uses `dtolnay/rust-toolchain@stable`,
+`Swatinem/rust-cache@v2`, and apt `r-base`.
+
+**Key decisions:** No inter-job dependencies. Each job gets its own `target/`
+cache. No path filtering yet. macOS CI and release workflow deferred.
+
+**Verification:** Syntax validated via Python YAML parser. Runs on push, PR, and
+workflow_dispatch.
+
+---
+
+## 2026-07-02 — EDA Handlers (Spec)
+
+**Design for:** 8 exploratory data analysis magic commands: `%summary`,
+`%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`,
+`%sessioninfo`. Each wraps well-known R functions via thin `MagicHandler` impls.
+
+**Key decisions:** Handlers with optional package dependencies (dplyr, skimr,
+naniar, janitor, waldo, sessioninfo) use `eval_with_pkg_check()` for clean
+error messages.
+
+**Files affected:** `src/magics/eda.rs`
+**Verification:** Per-handler parse+dispatch tests (no R required).
+
+---
+
+## 2026-07-02 — Shell Utilities + File Execution Handlers (Spec)
+
+**Design for:** 8 handlers — shell utilities (`%cd`, `%ls`, `%sx`, `%pushd`,
+`%popd`, `%dhist`) and file execution (`%run`, `%load`).
+Running total: 38 → 46 handlers.
+
+**Key decisions:** `%sx` captures shell output into R variable `sx_output`.
+`%cd` maintains `OLDPWD` and `dir_history` for `%dhist`. No new dependencies.
+
+**Files affected:** `src/magics/shell.rs`, `src/magics/file_magics.rs`
+**Verification:** 9 new unit tests. Target: 154+ lib tests.
+
+---
+
+## 2026-07-02 — Timing/Profiling Handlers (Spec)
+
+**Design for:** 3 timing/profiling handlers: `%time` (`system.time()`),
+`%timeit` (N iterations, min/mean/max), `%prun` (Rprof + summaryRprof).
+Running total: 46 → 49 handlers.
+
+**Key decisions:** `%timeit` default 7 iterations with `-n <count>` flag.
+`%prun` uses tempfile for Rprof output. No new dependencies.
+
+**Files affected:** `src/magics/timing.rs` (new)
+**Verification:** Unit tests marked `#[ignore]` (require R runtime).
+
+---
+
+## 2026-07-02 — Tool Strengths Analysis (Spec)
+
+**Analysis of:** IPython, Radian, Fish Shell, Julia REPL, and Harlequin SQL
+design patterns for orchard's feature roadmap.
+
+**Key decisions:** IPython's magic system identified as the most important
+design pattern (already adopted, 49 handlers). Fish's autosuggestion quality
+and Harlequin's TUI data browser flagged as highest-impact missing features.
+
+**Files affected:** None (pure analysis)
+
+---
+
+## 2026-07-02 — Autocomplete Upgrades (Plan)
+
+**Plan for:** Raising completion quality from prefix-only to zsh/fish level:
+fuzzy/substring matching, magic context completion, R function arg descriptions,
+improved `[[` completion, R6/reference class method completion, spellcheck.
+
+**Key decisions:** Case-insensitive subsequence matching (not Levenshtein).
+LaTeX completions kept on exact prefix only. Spellcheck is lowest-priority
+fallback.
+
+**Files affected:** `src/completion.rs`, `src/prompt.rs`
+**Verification:** Tests per task; target 278+ lib tests.
+
+---
+
+## 2026-07-03 — v0.5 Debugger + Modal Help (Spec + Plan)
+
+**Design/Plan for:** Completing v0.5 milestone: 8 debugger handlers (`%debug`,
+`%pdb`, `%debugonce`, `%undebug`, `%browser`, `%n`, `%finish`, `%Q`),
+`%methods`, `%psearch`, and `?`/`??` modal help dispatch.
+
+**Key decisions:** `?`/`??` dispatch as inline early check in `r_runtime.rs`
+read loops (not magic handlers) to avoid conflict with R's `?` help operator.
+Step/finish/browser return `Output::Eval` for R evaluation injection.
+
+**Files affected:** `src/magics/debug.rs`, `src/magics/inspect.rs`,
+`src/r_runtime.rs`
+**Verification:** ~410+ tests, `cargo clippy -- -D warnings` clean, handler
+count verified 66 → 72 (later corrected: 77 total with all v0.5 handlers).
+
+---
+
+## 2026-07-03 — Foundation Remediation (Plan)
+
+**Plan for:** Remediation of 8 priority phases P0–P8: 3 bug fixes (dead code,
+history-empty false positive, history replay panic), shared R-eval primitive
+extraction, splitting overgrown modules (`completion.rs` 1894 lines,
+`shell.rs` 1114 lines), deduplicating magic dispatch, dead code removal,
+filling test gaps, documentation sync, and CI/safety audit.
+
+**Key decisions:** Sequential phases committed directly to main.
+`saturating_sub(1)` replaced with `entries.is_empty()` check for the
+history-empty bug. Tombstone strategy for history deletion.
+
+**Verification:** All tests pass with regression tests for each bug.
+Total estimate ~10h 45m.
+
+---
+
+## 2026-07-03 — `%inspect` TUI Popup Phase 2 (Spec + Plan)
+
+**Design/Plan for:** Interactive ratatui-based TUI popup for `%inspect` with
+scrollable/sortable data table, cell preview overlay, and keyboard navigation.
+TUI path feature-gated behind `tui`; comfy-table fallback without it.
+Creates `src/magics/inspect_tui.rs` (693 lines).
+
+**Key decisions:** Direct TUI entry from handler (same pattern as `%edit`
+ceding to `$EDITOR`). Reuses `build_inspect_code()` from Phase 1 — no R-side
+changes. crossterm terminal state saved/restored on exit.
+
+**Files affected:** `src/magics/inspect_tui.rs` (new), `src/magics/inspect.rs`,
+`src/magics/mod.rs`
+**Verification:** `cargo test --features tui --lib` — 436 passed.
+Non-TUI build compiles identically.
 
 ---
