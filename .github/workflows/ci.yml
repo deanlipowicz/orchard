@@ -45,6 +45,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --lib
       - run: cargo test --test magic_framework
+      - run: cargo test --doc
 
   test-r:
     name: Test (embedded R)
