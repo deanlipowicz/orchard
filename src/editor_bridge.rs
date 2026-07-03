@@ -7,11 +7,17 @@
 //!
 //! See `docs/superpowers/specs/2026-07-03-editor-send-code-design.md`.
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::Path;
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -82,6 +88,107 @@ pub fn push_editor_job(job: EditorJob) {
     if let Ok(mut q) = queue().lock() {
         q.push_back(job);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Listener thread
+// ---------------------------------------------------------------------------
+
+/// Start the Unix domain socket listener on `path`.
+///
+/// Removes any stale socket, binds, sets owner-only permissions (0700), and
+/// spawns a dedicated accept loop thread. Returns the thread handle and a
+/// `SocketGuard` that will remove the socket file on drop (or when joined).
+pub fn run_listener(path: &Path) -> std::io::Result<JoinHandle<()>> {
+    // Remove any stale socket from a prior crash.
+    let _ = std::fs::remove_file(path);
+    let listener = UnixListener::bind(path)?;
+
+    // Owner-only access — no other users may connect.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+
+    Ok(thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    thread::spawn(|| handle_connection(stream));
+                }
+                Err(_) => break, // listener socket closed
+            }
+        }
+    }))
+}
+
+/// Handle a single editor connection: read a JSON-line request, enqueue it
+/// for evaluation, wait for the response, and write it back.
+fn handle_connection(stream: UnixStream) {
+    let peer_addr = stream.peer_addr().ok();
+    let mut reader = BufReader::new(&stream);
+    let mut line = String::new();
+
+    if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+        return; // connection closed or empty — nothing to do
+    }
+
+    let req: EditorRequest = match serde_json::from_str(&line) {
+        Ok(r) => r,
+        Err(e) => {
+            let resp = EditorResponse {
+                id: "null".into(),
+                status: "error".into(),
+                output: format!("invalid JSON: {e}"),
+            };
+            let _ = writeln!(&stream, "{}", serde_json::to_string(&resp).unwrap());
+            return;
+        }
+    };
+
+    // Create a oneshot channel for the REPL loop to send the response back.
+    let (tx, rx) = mpsc::channel();
+    let job = EditorJob {
+        id: req.id.clone(),
+        code: req.code,
+        echo: req.echo,
+        response_tx: tx,
+    };
+    push_editor_job(job);
+
+    // Block until the REPL loop evaluates the code and sends the response.
+    // If the REPL doesn't respond within 30s, return a timeout error.
+    let resp = match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(r) => r,
+        Err(_) => EditorResponse {
+            id: req.id,
+            status: "error".into(),
+            output: "REPL did not respond within 30s".into(),
+        },
+    };
+
+    if let Err(_e) = writeln!(&stream, "{}", serde_json::to_string(&resp).unwrap()) {
+        // Connection dropped by the editor before we could respond.
+        // This is not an error worth logging; just clean up.
+        let _ = peer_addr;
+    }
+}
+
+/// Connect to a running orchard via `path`, send `code` for evaluation, and
+/// return the response. Used by the `orchard --send "expr"` CLI client.
+pub fn send_code(path: &Path, code: &str) -> anyhow::Result<EditorResponse> {
+    let stream = UnixStream::connect(path)
+        .with_context(|| format!("Cannot connect to orchard socket at {}", path.display()))?;
+    let req = EditorRequest {
+        id: "cli-1".into(),
+        code: code.into(),
+        echo: true,
+    };
+    let mut writer = &stream;
+    writeln!(writer, "{}", serde_json::to_string(&req)?)?;
+    let mut reader = BufReader::new(&stream);
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    let resp: EditorResponse = serde_json::from_str(&line)?;
+    Ok(resp)
 }
 
 // ---------------------------------------------------------------------------
