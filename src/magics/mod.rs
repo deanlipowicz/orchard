@@ -10,6 +10,7 @@ pub mod inspect;
 pub mod inspect_tui;
 pub mod logging;
 pub mod lsmagic;
+pub mod repro;
 pub mod magic_help;
 pub mod r_utils;
 pub mod shell;

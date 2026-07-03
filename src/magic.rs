@@ -162,6 +162,7 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::file_magics::Run));
     registry.register(Arc::new(crate::magics::file_magics::Load));
     registry.register(Arc::new(crate::magics::file_magics::Import));
+    registry.register(Arc::new(crate::magics::repro::Repro));
 
     // P9 — EDA handlers
     registry.register(Arc::new(crate::magics::eda::Summary));

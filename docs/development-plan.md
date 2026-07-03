@@ -7,9 +7,9 @@ a ground-up rewrite of the Python radian REPL, with IPython-style magic commands
 schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
-**Current state:** 79 registered magic handlers | 443 tests | Linux only
-**v0.6 delivered:** TUI inspector (ratatui), inline plot display (Kitty/Sixel/iTerm2), %dev, %plots
-**Next:** v0.7 (package mode, editor bridge) → v0.8 (quality of life) → v1.0
+**Current state:** 82 registered magic handlers | ~470 tests | Linux only
+**v0.7 delivered:** Editor send-code protocol, `]` package mode, `%import`, `%connections`, `%edit -g`, Revise auto-reload, `%repro`
+**Next:** v0.8 (quality of life) → v0.9 (platform + packaging) → v1.0
 **Vision (v2.0):** Rich output (SVG/HTML), multithreaded R runtime, plugin architecture
 
 ---
@@ -20,9 +20,12 @@ in progress.
 reedline/readline → r_runtime::read_console_interactive
   ├── ; shell mode (persistent or one-shot)
   ├── ! inline shell execution
+  ├── ] package mode (renv/pak sub-loop)
   ├── ?/?? object introspection
   ├── ?/? modal help (lines starting with ?/?? → %pdoc/%psource)
-  ├── % magic dispatch (77 handlers)
+  ├── % magic dispatch (82 handlers)
+  ├── Editor socket queue drain (JSON-line over Unix socket)
+  ├── Auto-reload file watcher queue drain (notify crate)
   ├── + tab: Schema-aware autocomplete (14 backends) + variable selector ✅
   └── R evaluation (via R C API)
 
@@ -37,9 +40,11 @@ Data Inspector (v0.3):
 ```
 
 **Key files:**
-- `src/r_runtime.rs` — REPL loop, dispatch, R callbacks
+- `src/r_runtime.rs` — REPL loop, dispatch, R callbacks, ] package mode, editor/auto-reload queue drains
 - `src/magic.rs` — registry, MagicHandler trait, MagicLine
-- `src/magics/*.rs` — handler modules (77 handlers)
+- `src/magics/*.rs` — handler modules (82 handlers)
+- `src/editor_bridge.rs` — Unix socket server, JSON-line protocol, --send CLI
+- `src/auto_reload.rs` — Filesystem watcher for Revise-style auto-reload
 - `src/history.rs` — history + snapshot
 - `src/prompt.rs` — reedline session, completer, highlighter
 - `src/shell.rs` — shell commands, env lock
@@ -47,6 +52,7 @@ Data Inspector (v0.3):
 - `src/frequency.rs` — completion frequency tracker with JSON persistence
 - `src/data/dataset_schemas.tsv` — 36 common dataset schemas for zero-FFI column completion
 - `src/data/package_symbols.tsv` — 10 packages with function names + argument signatures
+- `tests/editor_bridge.rs` — Integration tests for editor send-code protocol
 
 **Key decisions:**
 - Magic dispatch runs in `read_console_interactive` (Rust side, before returning to R)
@@ -80,7 +86,7 @@ Data Inspector (v0.3):
 | v0.4 | History replay + reproducibility | ✅ PASS | 66 handlers, cwd-contextual history |
 | v0.5 | Debugger + fuzzy completion | ✅ PASS | 77 handlers, 8 debug handlers, ? modal help |
 | v0.6 | TUI inspector + inline plots | ✅ PASS | 79 handlers, TUI popup, inline plots (Kitty/Sixel/iTerm2), %dev, %plots |
-| v0.7 | Package mode + editor bridge | 🔲 Planned | See roadmap |
+| v0.7 | Package mode + editor bridge | ✅ PASS | 82 handlers, editor protocol, ] mode, %import, %connections, %edit -g, auto-reload, %repro |
 | v0.8 | Quality of life | 🔲 Planned | See roadmap |
 | v0.9 | Platform + packaging | 🔲 Planned | macOS hardware |
 | v1.0 | Extensions + release candidate | ❌ BLOCKED | All v0.3–v0.9 gates |
@@ -106,7 +112,7 @@ Data Inspector (v0.3):
 | 10 | Lexer: string detection, highlighting |
 | 11 | Shell: `;` mode, `cd`, env expansion |
 
-### Magic Commands (77 Registered)
+### Magic Commands (82 Registered)
 
 All handlers registered in `src/magic.rs::register_all()`.
 
@@ -114,17 +120,17 @@ All handlers registered in `src/magic.rs::register_all()`.
 |--------|----------|-------|
 | Framework | `%lsmagic`, `%magic` | 2 |
 | Shell | `%pwd`, `%env`, `%bookmark`, `%cd`, `%ls`, `%sx`, `%pushd`, `%popd`, `%dhist` | 9 |
-| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%dev`, `%plots`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect`, `%methods`, `%psearch` | 23 |
+| Inspect | `%objects`, `%who`, `%whos`, `%who_ls`, `%rm`, `%clear`, `%str`, `%head`, `%skim`, `%dim`, `%names`, `%plot`, `%dev`, `%plots`, `%tidy`, `%View`, `%pdoc`, `%pdef`, `%psource`, `%pfile`, `%inspect`, `%methods`, `%psearch`, `%connections` | 24 |
 | Debug | `%tb` (Traceback), `%where`, `%c` (Continue), `%xmode`, `%debug`, `%pdb`, `%debugonce`, `%undebug`, `%browser`, `%n`, `%finish`, `%Q` | 12 |
 | Timing | `%time`, `%timeit`, `%prun` | 3 |
 | History | `%hist`, `%hist_n`, `%save`, `%rerun`, `%recall` | 5 |
 | Config | `%config`, `%colors`, `%alias`, `%unalias`, `%automagic` | 5 |
 | Workspace | `%pinfo`, `%pinfo2`, `%store`, `%reset`, `%xdel` | 5 |
 | Edit | `%macro`, `%edit` | 2 |
-| File | `%run`, `%load` | 2 |
+| File | `%run`, `%load`, `%import`, `%repro` | 4 |
 | EDA | `%summary`, `%glimpse`, `%describe`, `%missing`, `%corr`, `%freq`, `%compare`, `%sessioninfo` | 8 |
 | Logging | `%logstart`, `%logstop`, `%logstate` | 3 |
-| **Total** | | **79** |
+| **Total** | | **82** |
 
 **Dispatch order:** `;` → `?` → `%` → R
 
@@ -561,31 +567,36 @@ Automatically re-source modified R files detected by filesystem watcher
 - `r_runtime.rs` — `setup_plot_capture()` sets `options(device = function() png(...))`
 - `main.rs` — Calls `runtime.setup_plot_capture()` during startup
 
-### v0.7 — Package Mode + Editor Bridge
+### ✅ v0.7 — Package Mode + Editor Bridge (Complete)
 
-**Target:** 83 handlers (79 + 4)
+**Target:** 82 handlers (79 + 3 new handlers, plus 4 infrastructure features)
 **Focus:** Terminal+editor IDE integration and reproducible package management.
 
-| Feature | Description | Effort |
-|---------|-------------|--------|
-| `]` package mode | Modal renv/pak package management | 4h |
-| Editor send-code protocol | Socket/pipe API for editor plugins (neovim iron.nvim, vim-slime, emacs ESS) | 4h |
-| `%edit -g` srcref jump | Go-to-definition: open $EDITOR at function's source file:line | 3h |
-| `%import` | Smart data loader: sniff file extension, dispatch to best reader | 2h |
-| `%connections` | DBI connection browser: list, show tables/schemas, test queries | 3h |
-| Revise-style auto-reload | Filesystem watcher to auto-source modified files | 4h |
-| `%repro` | Bundle script + renv lock + sessioninfo for reproducibility | 3h |
+| Feature | Description | Effort | Status |
+|---------|-------------|--------|--------|
+| Editor send-code protocol | Unix domain socket server, JSON-line protocol, `orchard --send "expr"` CLI | 4h | ✅ Done |
+| `]` package mode | Modal renv/pak sub-loop (mirrors `;` shell mode) | 4h | ✅ Done |
+| `%edit -g` srcref jump | Go-to-definition via R srcref → `$EDITOR +<line> <file>` | 3h | ✅ Done |
+| `%import` | Smart data loader: sniff extension → readr/readxl/arrow/haven/jsonlite | 2h | ✅ Done |
+| `%connections` | DBI connection browser: list, tables, fields | 3h | ✅ Done |
+| Revise-style auto-reload | `notify` crate filesystem watcher, auto-source via `source()` | 4h | ✅ Done |
+| `%repro` | Bundle `.R` + renv.lock + sessioninfo into zip | 3h | ✅ Done |
 
-**Subtotal:** ~23h
+**Actual effort:** ~23h
+**Result:** 82 handlers, ~470 tests, 2 new crate deps (`notify`, `zip`)
 
-**Architecture change:**
-- `]` mode: new PromptMode variant, prompt string `pkg>`, backspace-exit
-- Editor send-code protocol: Unix domain socket or named pipe, `orchard --send "expr"` CLI
-- Filesystem watcher: `notify` crate for file change detection
+**Architecture changes delivered:**
+- `src/editor_bridge.rs` — Unix socket listener, `EditorRequest`/`EditorResponse`/`EditorJob` types, shared `Mutex<VecDeque>`, JSON-line protocol, `send_code()` client
+- `src/r_runtime.rs` — `]` line detection → `read_pkg_prompt()` sub-loop; `dispatch_pkg_command()` for 7 subcommands; editor queue drain at top of `read_console_interactive`; auto-reload queue drain
+- `src/magics/connections.rs` — New handler module for DBI browsing
+- `src/magics/repro.rs` — New handler module for reproducibility bundles
+- `src/auto_reload.rs` — `notify::RecommendedWatcher` recursive watcher, shared queue, `start_watcher()`/`try_recv_reload()`
+- `src/cli.rs` — `--send <CODE>` flag
+- `src/main.rs` — `--send` client mode, socket listener startup, watcher startup
 
 ### v0.8 — Quality of Life
 
-**Target:** 87 handlers (83 + 4)
+**Target:** 86 handlers (82 + 4)
 **Focus:** Snippets, navigation, and workflow polish.
 
 | Feature | Description | Effort |
@@ -770,10 +781,12 @@ v0.4: 66 handlers (+7 handlers + cwd-contextual history search)
 v0.5: 77 handlers (+11: 8 debug handlers, %methods, %psearch, ? modal help)
        ➜ Complete
 v0.6: 79 handlers (+2: %inspect TUI popup, %dev, %plots)
-v0.7: 83 handlers (+4: ] package mode, %import, %connections, %repro)
-v0.8: 87 handlers (+4: snippets, %z, %copy, notify)
-v0.9: 87 handlers (infrastructure: packaging, docs, macOS, CI)
-v2.0: 95+ handlers (+15: plugin-contributed, +%bg/%jobs/%cancel, +%display/%render, +%plugin)
+       ➜ Complete
+v0.7: 82 handlers (+3: %import, %connections, %repro; +4 infrastructure features)
+       ➜ Complete
+v0.8: 86 handlers (+4: snippets, %z, %copy, notify)
+v0.9: 86 handlers (infrastructure: packaging, docs, macOS, CI)
+v2.0: 100+ handlers (+14: plugin-contributed, +%bg/%jobs/%cancel, +%display/%render, +%plugin)
 ```
 
 ---

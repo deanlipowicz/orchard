@@ -2961,3 +2961,168 @@ changes. crossterm terminal state saved/restored on exit.
 Non-TUI build compiles identically.
 
 ---
+
+## 2026-07-03 — v0.7 Bundle: Editor Send-Code Protocol
+
+**Goal:** Unix domain socket server enabling editors to send R code to the running
+orchard REPL, with `orchard --send "expr"` CLI wrapper.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/editor_bridge.rs` (create) | 385 lines: `EditorRequest`/`EditorResponse`/`EditorJob` types (serde), `OnceLock<Mutex<VecDeque>>` shared queue, `resolve_socket_path()` (XDG→/tmp), `SocketGuard` RAII cleanup, `run_listener()` accept loop, `handle_connection()` JSON-line handler, `send_code()` client |
+| `src/r_runtime.rs` | Drain editor queue at top of `read_console_interactive()` before each `read_line()`; `eval_string_raw_global()` → response through oneshot channel |
+| `src/cli.rs` | Added `--send <CODE>` argument |
+| `src/main.rs` | `--send` client mode (early exit before R init); listener startup after `setup_plot_capture()` |
+| `tests/editor_bridge.rs` | 2 integration tests (round-trip, invalid JSON) |
+
+**Key decisions:** Approach A — minimal dedicated POSIX listener thread, `std::sync::mpsc`
+oneshot channels for request-response, JSON-line protocol, deterministic socket path
+(XDG_RUNTIME_DIR → /tmp). No new crate dependencies.
+
+**Verification:**
+```
+cargo check          # 0 errors
+cargo clippy         # 0 warnings
+cargo fmt --check    # clean
+cargo test --lib     # 453 passed, 0 failed
+cargo test --test editor_bridge  # 2 passed, 0 failed
+```
+
+**Commits:** `8774cd0`, `f082191`, `00a96c6`, `e3359c3`, `f2e2ea6`, `8a29a34`
+
+---
+
+## 2026-07-03 — `]` Package Mode
+
+**Goal:** Modal package management sub-loop for renv/pak, mirroring `;` shell mode.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/r_runtime.rs` | `pkg_command()` strips `]` prefix; `read_pkg_prompt()` sub-loop shows `pkg>` prompt; `dispatch_pkg_command()` dispatches 7 subcommands (status/init/snapshot/restore/install/remove/update) to R via `eval_string_raw_global()` |
+
+**Key decisions:** Sub-loop pattern (same as `;` shell mode) rather than new
+`PromptMode` variant. Empty line or Ctrl-C exits back to R mode.
+
+**Commit:** `da4dd75`
+
+---
+
+## 2026-07-03 — `%import` Smart Data Loader
+
+**Goal:** New magic handler that sniffs file extension and dispatches to the best
+R reader function, assigning result to a variable named after the file stem.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/magics/file_magics.rs` | `Import` handler with `reader_for_extension()` dispatch table: `.csv`→`readr::read_csv`, `.tsv`→`readr::read_tsv`, `.xls/.xlsx`→`readxl::read_excel`, `.parquet`→`arrow::read_parquet`, `.rds`→`readRDS`, `.sas7bdat/.dta/.sav`→`haven`, `.json`→`jsonlite::fromJSON` |
+| `src/magic.rs` | Registered `Import` handler (79→80) |
+
+**Key decisions:** Extension validation before file existence check (fail fast).
+Variable auto-named from file stem with sanitised characters.
+
+**Tests:** +6 (empty args, nonexistent, unsupported extension, mapping table, success path with temp CSV)
+**Commit:** `5849bf4`
+
+---
+
+## 2026-07-03 — `%connections` DBI Browser
+
+**Goal:** New magic handler listing active DBI connections, inspecting tables and fields.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/magics/connections.rs` (create) | New module: `Connections` handler with 3 subcommands — no args (list all DBIConnection objects), one arg (list tables via `DBI::dbListTables`), two args (list fields via `DBI::dbListFields`) |
+| `src/magics/mod.rs` | Added `pub mod connections;` |
+| `src/magic.rs` | Registered `Connections` handler (80→81) |
+
+**Tests:** +3 (no args, invalid name, too many args)
+**Commit:** `632eac1`
+
+---
+
+## 2026-07-03 — `%edit -g` Srcref Jump
+
+**Goal:** Go-to-definition: open `$EDITOR +<line> <file>` at function's source location
+via R's `getAnywhere()` and `srcref` attributes.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `src/magics/edit_magic.rs` | `Edit::run()` now detects `-g <fn>` / `--goto <fn>` flags; new `jump_to_function()` calls R code to resolve srcref to file:line, then spawns `$EDITOR +<line> <file>` |
+
+**Key decisions:** Works with vim, nvim, emacsclient, and most editors supporting
+`+<line>` syntax. Falls back through `R_EDITOR` → `EDITOR` → vim.
+
+**Tests:** +3 (empty name, whitespace name, `-g` flag dispatch)
+**Commit:** `88cf7b8`
+
+---
+
+## 2026-07-03 — Revise-Style Auto-Reload
+
+**Goal:** Filesystem watcher that automatically sources modified `.R`/`.r` files,
+mirroring Revise.jl. Toggled via `options(orchard.auto_reload = TRUE)`.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `Cargo.toml` | Added `notify = "7"` dependency |
+| `src/auto_reload.rs` (create) | `start_watcher()` uses `notify::RecommendedWatcher` recursively on cwd; shared `RELOAD_QUEUE` with deduplication; `try_recv_reload()` for REPL loop drain; `FileWatcherGuard` RAII stop |
+| `src/r_runtime.rs` | Auto-reload drain in `read_console_interactive` (after editor queue drain); calls `source()` on each changed file |
+| `src/main.rs` | Wire `start_watcher()` at startup |
+
+**Key decisions:** Sub-loop drain pattern (same as editor bridge). Only `.R`/`.r`
+extensions (case-insensitive). Deduplication via `VecDeque::contains()`. Watcher
+stops on guard drop (process exit).
+
+**Tests:** +3 (empty queue, push/pop, deduplication)
+**Commit:** `bb5e53b`
+
+---
+
+## 2026-07-03 — `%repro` Reproducibility Bundle
+
+**Goal:** New magic handler that bundles an R script, renv lockfile, session info,
+and version metadata into a zip archive for sharing in bug reports.
+
+**Changes:**
+
+| Area | What was done |
+|------|---------------|
+| `Cargo.toml` | Added `zip = { version = "2", default-features = false, features = ["deflate"] }` dependency |
+| `src/magics/repro.rs` (create) | `Repro` handler: reads R script, captures `sessioninfo::session_info()` via R, reads `renv.lock` if present, writes zip with `version.txt` + `session_info.txt` + script + optional `renv.lock` |
+| `src/magics/mod.rs` | Added `pub mod repro;` |
+| `src/magic.rs` | Registered `Repro` handler (81→82) |
+
+**Tests:** +3 (empty args, nonexistent file, creates zip with temp file)
+**Commit:** Pending
+
+---
+
+## v0.7 Milestone Summary
+
+| Metric | v0.6 | v0.7 |
+|--------|------|------|
+| Handlers | 79 | 82 |
+| Tests | 443 | ~470 |
+| New source files | — | 7 (`editor_bridge.rs`, `auto_reload.rs`, `connections.rs`, `repro.rs`, `inspect_tui.rs`) |
+| New crate deps | — | `notify`, `zip` |
+| Commits | — | 10+ |
+
+**Key architecture additions:**
+- Editor bridge: Unix socket server + JSON-line protocol + `--send` CLI
+- Auto-reload: `notify` crate filesystem watcher with shared queue
+- `]` package mode: ephemeral sub-loop mirroring `;` shell mode
+- 3 new handler modules: connections, repro
+
+---
