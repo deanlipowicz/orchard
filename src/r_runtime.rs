@@ -795,29 +795,9 @@ extern "C" fn read_console(
             continue;
         }
         if let Some(magic_cmd) = magic::parse_magic(&text, settings.automagic) {
-            match magic::dispatch(&magic_cmd) {
-                Ok(MagicOutput::Eval(code)) => {
-                    append_history(&mode, &text);
-                    return queue_input(&code, &mode, buf, len);
-                }
-                Ok(MagicOutput::Text(msg)) => {
-                    print!("{msg}");
-                    io::stdout().flush().ok();
-                    continue;
-                }
-                Ok(MagicOutput::DisplayAndEval(code)) => {
-                    print!("{code}");
-                    io::stdout().flush().ok();
-                    append_history(&mode, &text);
-                    return queue_input(&code, &mode, buf, len);
-                }
-                Ok(MagicOutput::Silent) => {
-                    continue;
-                }
-                Err(err) => {
-                    eprintln!("{err}");
-                    continue;
-                }
+            match handle_magic_output(magic::dispatch(&magic_cmd), &mode, &text, buf, len) {
+                MagicDispatchResult::Continue => continue,
+                MagicDispatchResult::Return(val) => return val,
             }
         }
         append_history(&mode, &text);
@@ -976,33 +956,14 @@ fn read_console_interactive(
             continue;
         }
         if let Some(magic_cmd) = magic::parse_magic(&text, settings.automagic) {
-            match magic::dispatch(&magic_cmd) {
-                Ok(MagicOutput::Text(msg)) => {
-                    print!("{msg}");
-                    io::stdout().flush().ok();
+            match handle_magic_output(magic::dispatch(&magic_cmd), mode, &text, buf, len) {
+                MagicDispatchResult::Continue => {
                     store_prompt_session(session);
                     continue;
                 }
-                Ok(MagicOutput::Eval(code)) => {
+                MagicDispatchResult::Return(val) => {
                     store_prompt_session(session);
-                    append_history(mode, &text);
-                    return queue_input(&code, mode, buf, len);
-                }
-                Ok(MagicOutput::DisplayAndEval(code)) => {
-                    print!("{code}");
-                    io::stdout().flush().ok();
-                    store_prompt_session(session);
-                    append_history(mode, &text);
-                    return queue_input(&code, mode, buf, len);
-                }
-                Ok(MagicOutput::Silent) => {
-                    store_prompt_session(session);
-                    continue;
-                }
-                Err(err) => {
-                    eprintln!("{err}");
-                    store_prompt_session(session);
-                    continue;
+                    return val;
                 }
             }
         }
@@ -1317,6 +1278,52 @@ fn dispatch_source(topic: &str) -> Result<(), String> {
         }
         Ok(_) => Ok(()),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Result of handling a magic dispatch — tells the caller whether to continue
+/// the loop or return a value.
+enum MagicDispatchResult {
+    /// Continue the REPL loop (output was displayed or action was silent).
+    Continue,
+    /// Return from the reader function with the given value.
+    Return(c_int),
+}
+
+/// Handle the result of a magic dispatch.  Shared by the piped and interactive
+/// read paths so that the five-arm `match` on `MagicOutput` is written once.
+///
+/// The caller adds `store_prompt_session` around the result when running in
+/// interactive mode (where a session has been taken out of `CONSOLE`); the piped
+/// path has no session to store.
+fn handle_magic_output(
+    result: Result<MagicOutput, magic::MagicError>,
+    mode: &PromptMode,
+    text: &str,
+    buf: *mut c_uchar,
+    len: c_int,
+) -> MagicDispatchResult {
+    match result {
+        Ok(MagicOutput::Eval(code)) => {
+            append_history(mode, text);
+            MagicDispatchResult::Return(queue_input(&code, mode, buf, len))
+        }
+        Ok(MagicOutput::Text(msg)) => {
+            print!("{msg}");
+            io::stdout().flush().ok();
+            MagicDispatchResult::Continue
+        }
+        Ok(MagicOutput::DisplayAndEval(code)) => {
+            print!("{code}");
+            io::stdout().flush().ok();
+            append_history(mode, text);
+            MagicDispatchResult::Return(queue_input(&code, mode, buf, len))
+        }
+        Ok(MagicOutput::Silent) => MagicDispatchResult::Continue,
+        Err(err) => {
+            eprintln!("{err}");
+            MagicDispatchResult::Continue
+        }
     }
 }
 
