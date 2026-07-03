@@ -1,7 +1,6 @@
 use crate::{
     cli::Cli,
-    editing_hook,
-    editor_bridge,
+    editing_hook, editor_bridge,
     history::{History, OrchardHistoryBackend},
     magic::{self, Output as MagicOutput},
     prompt::{PromptSession, ReadResult},
@@ -965,6 +964,23 @@ fn read_console_interactive(
             }
             continue;
         }
+        // ] package mode — enter renv/pak sub-loop when line starts with ]
+        if mode.accept_inline()
+            && let Some(command) = pkg_command(&text)
+        {
+            if command.is_empty() {
+                let result = read_pkg_prompt(&mut session, settings);
+                store_prompt_session(session);
+                match result {
+                    ShellPromptResult::ReturnToR => continue,
+                    ShellPromptResult::Eof => return 0,
+                }
+            } else {
+                dispatch_pkg_command(command);
+                store_prompt_session(session);
+            }
+            continue;
+        }
         // ? modal help: route ?name → %pdoc, ??name → %psource
         if let Some(rest) = text.trim_start().strip_prefix('?') {
             if rest.starts_with('?') {
@@ -1043,6 +1059,68 @@ fn read_shell_prompt(session: &mut PromptSession, settings: &ConsoleSettings) ->
 
 fn shell_command(text: &str) -> Option<&str> {
     text.trim_end_matches('\n').strip_prefix(';')
+}
+
+/// Check if text starts with `]` to enter package mode.
+fn pkg_command(text: &str) -> Option<&str> {
+    text.trim_end_matches('\n').strip_prefix(']')
+}
+
+/// Dispatch a package-mode subcommand by calling the corresponding R function.
+fn dispatch_pkg_command(command: &str) {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    // Split on first space to get subcommand and optional argument.
+    let (sub, arg) = match trimmed.split_once(char::is_whitespace) {
+        Some((s, a)) => (s, a.trim()),
+        None => (trimmed, ""),
+    };
+
+    let r_code: String = match sub {
+        "status" => "renv::status()".into(),
+        "init" => "renv::init()".into(),
+        "snapshot" => "renv::snapshot()".into(),
+        "restore" => "renv::restore()".into(),
+        "install" if !arg.is_empty() => format!("pak::pak({})", crate::util::r_string(arg)),
+        "remove" if !arg.is_empty() => format!("remove.packages({})", crate::util::r_string(arg)),
+        "update" => "pak::pak_update()".into(),
+        _ => {
+            eprintln!("Unknown package mode command: {sub}");
+            eprintln!(
+                "Available: status, init, snapshot, restore, install <pkg>, remove <pkg>, update"
+            );
+            return;
+        }
+    };
+
+    match eval_string_raw_global(&r_code) {
+        Ok(output) => print!("{output}"),
+        Err(e) => eprintln!("{e:#}"),
+    }
+    io::stdout().flush().ok();
+}
+
+/// Sub-loop for `]` package mode — reads commands and dispatches them to R.
+/// Returns `ReturnToR` (empty line or Ctrl-C) or `Eof`.
+fn read_pkg_prompt(session: &mut PromptSession, settings: &ConsoleSettings) -> ShellPromptResult {
+    // Build a package-mode prompt from the shell prompt template.
+    let pkg_prompt = settings.shell_prompt.replace('$', "pkg");
+    loop {
+        match session.read_line(pkg_prompt.clone(), String::new(), PromptMode::R) {
+            ReadResult::Line(line) => {
+                let command = line.trim_end_matches('\n');
+                if command.is_empty() {
+                    break ShellPromptResult::ReturnToR;
+                }
+                dispatch_pkg_command(command);
+            }
+            ReadResult::CtrlC => break ShellPromptResult::ReturnToR,
+            ReadResult::Eof | ReadResult::Error => break ShellPromptResult::Eof,
+        }
+    }
 }
 
 fn read_console_native(
