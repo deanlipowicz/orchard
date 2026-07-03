@@ -1,4 +1,5 @@
 use crate::{
+    auto_reload,
     cli::Cli,
     editing_hook, editor_bridge,
     history::{History, OrchardHistoryBackend},
@@ -904,6 +905,22 @@ fn read_console_interactive(
             }
             io::stdout().flush().ok();
             continue; // skip reedline — recheck for more messages
+        }
+        // Auto-reload modified R source files (Revise.jl style).
+        if auto_reload::auto_reload_enabled() {
+            while let Some(path) = auto_reload::try_recv_reload() {
+                let r_code = format!(
+                    "source({})",
+                    crate::util::r_string(&path.display().to_string())
+                );
+                if let Err(e) = eval_string_raw_global(&r_code) {
+                    eprintln!("auto-reload error ({}): {e}", path.display());
+                } else {
+                    println!("[auto-reload] sourced {}", path.display());
+                }
+                io::stdout().flush().ok();
+                continue;
+            }
         }
         let mut session = {
             let console = CONSOLE.get_or_init(|| Mutex::new(ConsoleState::default()));

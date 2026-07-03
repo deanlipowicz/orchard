@@ -1,4 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
+pub mod auto_reload;
+
 pub mod cli;
 
 pub mod completion;

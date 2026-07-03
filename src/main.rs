@@ -1,6 +1,7 @@
 use anyhow::Context;
 use orchard::{
-    cli, dyld, editor_bridge, env_setup, history, profile, r_discovery, r_runtime, settings, util,
+    auto_reload, cli, dyld, editor_bridge, env_setup, history, profile, r_discovery, r_runtime,
+    settings, util,
 };
 use std::io::{IsTerminal, Write};
 
@@ -83,6 +84,12 @@ fn main() -> anyhow::Result<()> {
     };
     if let Err(e) = editor_bridge::run_listener(&socket_path) {
         eprintln!("Warning: could not start editor socket: {e}");
+    }
+
+    // Start filesystem watcher for Revise-style auto-reload of R source files.
+    // The guard stops the watcher on drop (process exit).
+    if let Ok((_watcher_handle, _watcher_guard)) = auto_reload::start_watcher() {
+        // Watcher running in background — auto-reload enabled via R option.
     }
 
     runtime.run_repl();
