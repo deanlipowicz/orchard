@@ -1,7 +1,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
-
 pub mod cli;
+
 pub mod completion;
+
+pub mod editor_bridge;
 pub mod dyld;
 pub mod editing_hook;
 pub mod env_setup;
