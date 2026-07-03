@@ -16,7 +16,6 @@ pub const STDERR_FORMAT: &str = "\x1b[31m{}\x1b[0m";
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub auto_suggest: bool,
-    pub emacs_bindings_in_vi_insert_mode: bool,
     pub editing_mode: String,
     pub color_scheme: String,
     pub auto_match: bool,
@@ -51,7 +50,6 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             auto_suggest: false,
-            emacs_bindings_in_vi_insert_mode: false,
             editing_mode: "emacs".to_string(),
             color_scheme: "native".to_string(),
             auto_match: true,
@@ -116,10 +114,6 @@ impl Settings {
 
         Ok(Self {
             auto_suggest: runtime.get_option_bool("orchard.auto_suggest", d.auto_suggest)?,
-            emacs_bindings_in_vi_insert_mode: runtime.get_option_bool(
-                "orchard.emacs_bindings_in_vi_insert_mode",
-                d.emacs_bindings_in_vi_insert_mode,
-            )?,
             editing_mode: runtime
                 .get_option_string("orchard.editing_mode", Some(&d.editing_mode))?
                 .unwrap_or(d.editing_mode),
