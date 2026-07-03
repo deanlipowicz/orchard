@@ -39,7 +39,7 @@ cargo test --lib magics  # 105 passed (all magics tests, including all debug han
 
 **Commit:**
 ```
-(see HEAD — committed alongside docs updates)
+34d5477 fix: add R_AVAILABLE guard to prevent SIGSEGV when R-FFI is called without R initialized
 ```
 
 ---
