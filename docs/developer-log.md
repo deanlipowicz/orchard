@@ -2991,6 +2991,8 @@ cargo test --test editor_bridge  # 2 passed, 0 failed
 ```
 
 **Commits:** `8774cd0`, `f082191`, `00a96c6`, `e3359c3`, `f2e2ea6`, `8a29a34`
+**Plan:** `docs/superpowers/plans/2026-07-03-editor-send-code.md` (7 tasks, 671 lines)
+**Spec:** `docs/superpowers/specs/2026-07-03-editor-send-code-design.md` (181 lines)
 
 ---
 

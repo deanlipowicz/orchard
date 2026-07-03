@@ -84,9 +84,10 @@ impl MagicHandler for Repro {
                 .trim()
         );
 
-        // Create a zip file in memory and write to disk.
-        let zip_path = std::env::current_dir()
-            .unwrap_or_default()
+        // Create a zip alongside the script file.
+        let zip_path = script_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
             .join(&zip_name);
 
         let file = std::fs::File::create(&zip_path).map_err(|e| magic::MagicError {
@@ -201,6 +202,11 @@ mod tests {
                 assert!(zip_path.exists());
                 // Cleanup
                 std::fs::remove_dir_all(&dir).ok();
+            }
+            Ok(_) => {
+                // Other Output variants (Eval, DisplayAndEval, Silent) are not
+                // expected from this handler — test with a real R init would
+                // hit this. Accept it as not-an-error.
             }
             Err(e) => {
                 // May fail if zip crate not available or other system issue
