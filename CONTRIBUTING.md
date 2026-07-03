@@ -64,8 +64,9 @@ package symbols) lives in `src/data/` as TSV files for fast zero-FFI lookups.
 
 ### Prompt and editor (`src/prompt.rs`)
 Wraps reedline (the line editor) with orchard's syntax highlighter, completer,
-input validator, and keybindings. This is where the editing experience gets
-built.
+input validator, and keybindings. We use a vendored fork at `vendor/reedline/`
+with orchard-specific patches; see `vendor/reedline/README.md` for details.
+This is where the editing experience gets built.
 
 ### Shell integration (`src/shell.rs`)
 Handles `;` shell mode (persistent and one-shot), `cd`, and environment

@@ -15,7 +15,7 @@ Autocomplete and autosuggest from zsh and fish. orchard doesn't try to be an
 IDE — it tries to be the best REPL you've ever paired with your editor.
 
 - **Repository:** [github.com/deanlipowicz/orchard](https://github.com/deanlipowicz/orchard)
-- **Status:** v0.5 · 77 magic handlers · 212+ tests · Linux
+- **Status:** v0.5 · 77 magic handlers · 414+ tests · Linux
 - **Docs:** [Development plan](docs/development-plan.md) · [Developer log](docs/developer-log.md) · [Specs](docs/superpowers/specs/) · [Plans](docs/superpowers/plans/)
 
 ---
@@ -55,7 +55,7 @@ files are the record.
 
 ## What's inside
 
-### 🪄 IPython-style magic commands (47 and counting)
+### 🪄 IPython-style magic commands (77 and counting)
 
 Work across languages and tools without leaving the R session.
 
@@ -130,22 +130,54 @@ you loved, running closer to the metal with a stricter safety discipline
 
 ---
 
-## Quick start
+## Installation
+
+**Prerequisites:**
+- Rust toolchain (stable, via [rustup](https://rustup.rs))
+- R ≥ 4.0 with development headers (`R-devel` or `r-base-dev`)
+- LLVM/Clang for libR bindings (via bindgen)
 
 ```bash
-# Build from source (requires Rust and R >= 4.0)
+# Clone and build
+git clone https://github.com/deanlipowicz/orchard.git
+cd orchard
 cargo build --release
+
+# Run
 ./target/release/orchard -q
 
-# With a profile
-./target/release/orchard --vanilla
-
-# Point it at a specific R installation
+# Point at a specific R installation
 ORCHARD_R_HOME=/usr/lib/R ./target/release/orchard
 ```
 
 orchard discovers R automatically on Linux. macOS support is behind a feature
 flag and in progress.
+
+## Configuration
+
+orchard exposes 30+ settings through R's `options()` system. Configure them in
+your `.Rprofile`:
+
+```r
+options(
+  orchard.auto_suggest       = TRUE,
+  orchard.editing_mode       = "vi",
+  orchard.color_scheme       = "solarized_dark",
+  orchard.history_size       = 20000,
+  orchard.history_search_ignore_case = TRUE,
+  orchard.auto_indentation   = TRUE,
+  orchard.highlight_matching_bracket = TRUE,
+  orchard.insert_new_line    = FALSE,
+  orchard.indent_lines       = TRUE,
+  orchard.auto_match         = TRUE,
+  orchard.auto_width         = TRUE
+)
+```
+
+Available settings mirror reedline's configuration: `orchard.editing_mode`
+("emacs" or "vi"), `orchard.color_scheme`, `orchard.auto_suggest`,
+`orchard.tab_size`, `orchard.history_size`, `orchard.history_duplicates`,
+and more. Use `%env` to inspect current values at runtime.
 
 ---
 
