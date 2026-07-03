@@ -65,7 +65,7 @@ Data Inspector (v0.3):
 | **B** | Prompt, settings, profiles, multiline, event loop | ✅ Sufficient | Timer-based event loop, all 5 sub-items |
 | **C** | History, shell mode, loaded navigation | ✅ Sufficient | Compatible parser/writer, mode-filtered search, autosuggest |
 | **D** | Completion, keybindings, editing polish | ✅ Sufficient | R/package/LaTeX/shell completion, 13 keybindings, custom keymaps |
-| **E** | Cross-platform hardening | 🟡 Partial | Code compiles behind cfgs, no macOS acceptance test |
+| **E** | Cross-platform hardening | 🔴 Not started | Code exists in dyld.rs, untested, ungated; no macOS CI |
 
 ---
 
@@ -526,6 +526,16 @@ Automatically re-source modified R files detected by filesystem watcher
 **Target:** 79 handlers (77 + 2)
 **Focus:** Rich terminal rendering for data and graphics.
 
+**Pre-v0.6 foundation work (from 2026-07-03 review):**
+
+| Gap | Severity | Effort | Description |
+|-----|----------|--------|-------------|
+| Add `ratatui` dependency | Blocker | 5m | Neither `ratatui` nor a `tui` feature flag exist in Cargo.toml despite 6h estimate. Add `ratatui = { version = "0.29", optional = true }` with a `tui` feature flag. |
+| Cross-platform (Milestone E) | High | 3h | `dyld.rs` has never been compiled or tested on macOS. No `[features]` in Cargo.toml, no macOS CI job. Add macOS CI (even `cargo check` only) and gate dyld behind `#[cfg(target_os = "macos")]` at module level. |
+| Tier 2 debug handler tests | Medium | 2h | `%browser`, `%n`, `%finish`, `%pdb`, `%debugonce`, `%undebug` have no integration tests. Requires `debugSource()` or `browser()` setup. Deferred from v0.5 SIGSEGV fix. |
+| Interactive recover() tests | Medium | 2h | `%debug`, `%where`, `%c`, `%Q` call interactive `recover()` which consumes stdin — blocking stdin-piped tests. Needs PTY-based or script-file approach. |
+| Test assertion quality | Low | 3h | Many smoke tests assert `is_ok()` without verifying output content. EDA, inspect, and config handlers particularly weak. |
+
 | Feature | Description | Effort |
 |---------|-------------|--------|
 | `%inspect` ratatui TUI popup | Interactive scroll, sort, cell preview (Phase 2) | 6h |
@@ -533,7 +543,7 @@ Automatically re-source modified R files detected by filesystem watcher
 | `%dev` | Plot device management: list, switch, clear | 1h |
 | `%plots` | Plot history: view, save, clear previous plots | 1h |
 
-**Subtotal:** ~14h
+**Subtotal:** ~14h (features) + ~10h (foundation gaps) = ~24h
 
 **Architecture change:**
 - `ratatui` dependency for terminal UI
