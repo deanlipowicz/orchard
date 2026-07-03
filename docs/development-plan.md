@@ -8,7 +8,8 @@ schema-aware autocomplete, and an in-terminal data inspector. Linux today, macOS
 in progress.
 
 **Current state:** 79 registered magic handlers | 443 tests | Linux only
-**Next:** v0.5-v1.0 (debugger, TUI inspector, editor bridge, extension system, release)
+**v0.6 delivered:** TUI inspector (ratatui), inline plot display (Kitty/Sixel/iTerm2), %dev, %plots
+**Next:** v0.7 (package mode, editor bridge) → v0.8 (quality of life) → v1.0
 **Vision (v2.0):** Rich output (SVG/HTML), multithreaded R runtime, plugin architecture
 
 ---
@@ -528,34 +529,37 @@ Automatically re-source modified R files detected by filesystem watcher
 - Frequency tracking with JSON persistence (`src/frequency.rs`)
 - Static TSV fast paths (`src/data/dataset_schemas.tsv`, `src/data/package_symbols.tsv`)
 
-### v0.6 — TUI Inspector + Inline Plots
+### v0.6 — TUI Inspector + Inline Plots ✅ Delivered
 
 **Target:** 79 handlers (77 + 2)
 **Focus:** Rich terminal rendering for data and graphics.
+**Status:** ✅ PASS — all features delivered (8 commits, ~1400 new lines)
 
-**Pre-v0.6 foundation work (from 2026-07-03 review):**
+| Feature | Status | Deliverable |
+|---------|--------|-------------|
+| `%inspect` ratatui TUI popup | ✅ | Interactive scroll, sort, cell preview (Phase 2) — `src/magics/inspect_tui.rs` (693 lines) |
+| Inline plot display | ✅ | Terminal protocol detection (Kitty/Sixel/iTerm2) + PNG capture — `src/terminal_graphics.rs` (355 lines) |
+| `%dev` | ✅ | Graphics device management: list, switch, close, capture — `src/magics/inspect.rs` |
+| `%plots` | ✅ | Plot history: list, save to file, clear — `src/magics/inspect.rs` |
+| R device hook at startup | ✅ | `RRuntime::setup_plot_capture()` redirects all R `plot()`/`ggplot()` to PNG — `src/r_runtime.rs` |
 
-| Gap | Severity | Effort | Description |
-|-----|----------|--------|-------------|
-| Add `ratatui` dependency | Blocker | 5m | Neither `ratatui` nor a `tui` feature flag exist in Cargo.toml despite 6h estimate. Add `ratatui = { version = "0.29", optional = true }` with a `tui` feature flag. |
-| Cross-platform (Milestone E) | High | 3h | `dyld.rs` has never been compiled or tested on macOS. No `[features]` in Cargo.toml, no macOS CI job. Add macOS CI (even `cargo check` only) and gate dyld behind `#[cfg(target_os = "macos")]` at module level. |
-| Tier 2 debug handler tests | Medium | 2h | `%browser`, `%n`, `%finish`, `%pdb`, `%debugonce`, `%undebug` have no integration tests. Requires `debugSource()` or `browser()` setup. Deferred from v0.5 SIGSEGV fix. |
-| Interactive recover() tests | Medium | 2h | `%debug`, `%where`, `%c`, `%Q` call interactive `recover()` which consumes stdin — blocking stdin-piped tests. Needs PTY-based or script-file approach. |
-| Test assertion quality | Low | 3h | Many smoke tests assert `is_ok()` without verifying output content. EDA, inspect, and config handlers particularly weak. |
+**Foundation gaps addressed:**
 
-| Feature | Description | Effort |
-|---------|-------------|--------|
-| `%inspect` ratatui TUI popup | Interactive scroll, sort, cell preview (Phase 2) | 6h |
-| Inline plot display | Sixel/kitty/iTerm2 graphics protocol for in-REPL plots | 6h |
-| `%dev` | Plot device management: list, switch, clear | 1h |
-| `%plots` | Plot history: view, save, clear previous plots | 1h |
+| Gap | Severity | Status | Notes |
+|-----|----------|--------|-------|
+| Ratatui dependency | Blocker | ✅ Done | `ratatui = { version = "0.29", optional = true }` with `tui` feature |
+| P4 — Dedup magic dispatch | Low | ✅ Done | Shared `handle_magic_output()` eliminates duplicated `match` in `r_runtime.rs` |
+| Cross-platform (Milestone E) | High | ❌ Deferred | Blocked on macOS hardware for acceptance testing |
+| Tier 2 debug handler tests | Medium | ⏸ Deferred | `%browser`, `%n`, `%finish`, `%pdb`, `%debugonce`, `%undebug` — needs `debugSource()` setup |
+| Interactive recover() tests | Medium | ⏸ Deferred | `%debug`, `%where`, `%c`, `%Q` — needs PTY-based approach |
+| Test assertion quality | Low | 🔄 Improved | 17 new tests added across TUI inspect, Dev, Plots, terminal_graphics modules |
 
-**Subtotal:** ~14h (features) + ~10h (foundation gaps) = ~24h
-
-**Architecture change:**
-- `ratatui` dependency for terminal UI
-- Graphics protocol detection (sixel/kitty/iTerm2) — fallback to external device or ASCII art
-- R graphics device hook: intercept `dev.new()` calls, route through Rust rendering
+**Architecture additions:**
+- `src/terminal_graphics.rs` — Terminal protocol detection (`GraphicsProtocol::detect()`), rendering for Kitty (chunked base64), Sixel (ImageMagick/ffmpeg), iTerm2 (OSC 1337), manual base64 encoder, `display_png()` API
+- `src/magics/inspect_tui.rs` — ratatui terminal setup, `InspectData` model, TSV parser, `InspectData::sort_by()` (numeric-aware), `run_tui_inspect()` event loop, `ui()` rendering, `centered_rect()` popup helper, 10 tests. Feature-gated behind `tui` flag
+- `inspect.rs` — `Inspect::run()` has `#[cfg(feature = "tui")]` branch; `Dev` + `Plots` handler structs; `%plot` captures via `png()` device + `display_png()`; `%dev capture` subcommand
+- `r_runtime.rs` — `setup_plot_capture()` sets `options(device = function() png(...))`
+- `main.rs` — Calls `runtime.setup_plot_capture()` during startup
 
 ### v0.7 — Package Mode + Editor Bridge
 
