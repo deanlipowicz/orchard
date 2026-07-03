@@ -77,7 +77,9 @@ impl MagicHandler for Store {
         if let Some(rest) = args.strip_prefix("-l ") {
             let file = rest.trim();
             if file.is_empty() {
-                return Err(magic::MagicError { message: "Usage: %store -l <filename>".into() });
+                return Err(magic::MagicError {
+                    message: "Usage: %store -l <filename>".into(),
+                });
             }
             eval_r_captured(&format!(
                 r#"load_or_error <- function(f) {{ if (!file.exists(f)) stop("file not found: ", f); readRDS(f) }}; print(load_or_error("{file}"))"#,
@@ -91,9 +93,7 @@ impl MagicHandler for Store {
             }
             let obj = parts[0].trim();
             let file = parts[1].trim();
-            eval_r_captured(&format!(
-                r#"saveRDS({obj}, file = "{file}")"#,
-            ))?;
+            eval_r_captured(&format!(r#"saveRDS({obj}, file = "{file}")"#,))?;
             Ok(Output::Text(format!("Saved {obj} to {file}\n")))
         }
     }
@@ -120,7 +120,9 @@ impl MagicHandler for Reset {
         } else {
             // Selective reset: remove only matching objects
             eval_r_silent(&format!("rm(list = ls(pattern = '{args}', all = TRUE))"))?;
-            Ok(Output::Text(format!("Removed objects matching '{args}'.\n")))
+            Ok(Output::Text(format!(
+                "Removed objects matching '{args}'.\n"
+            )))
         }
     }
 }

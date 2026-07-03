@@ -38,12 +38,12 @@ fn resolve_edit_target(args: &str) -> Result<(PathBuf, Option<String>), magic::M
     if args.is_empty() {
         // %edit with no args → edit last entry
         let entries = crate::magics::history_magics::get_history_snapshot();
-        let n = entries.len().saturating_sub(1);
-        if n == 0 {
+        if entries.is_empty() {
             return Err(magic::MagicError {
                 message: "History is empty".into(),
             });
         }
+        let n = entries.len().saturating_sub(1);
         let code = join_entries(&entries[n..]);
         let path = create_temp_file(&code)?;
         Ok((path, None))
@@ -74,19 +74,7 @@ fn resolve_edit_target(args: &str) -> Result<(PathBuf, Option<String>), magic::M
         let path = create_temp_file(&code)?;
         Ok((path, None))
     } else if args.contains('-') {
-        // Range: %edit N-M
-        let entries = crate::magics::history_magics::get_history_snapshot();
-        let selected =
-            crate::magics::history_magics::resolve_range(args, &entries).ok_or_else(|| {
-                magic::MagicError {
-                    message: format!("Invalid range: '{args}' (max {})", entries.len()),
-                }
-            })?;
-        let code = join_entries(&selected);
-        let path = create_temp_file(&code)?;
-        Ok((path, None))
-    } else if args.starts_with('-') {
-        // Negative: %edit -N
+        // Range: %edit N-M or -N
         let entries = crate::magics::history_magics::get_history_snapshot();
         let selected =
             crate::magics::history_magics::resolve_range(args, &entries).ok_or_else(|| {

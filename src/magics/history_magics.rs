@@ -179,7 +179,10 @@ impl magic::MagicHandler for Hist {
             } else {
                 entry.text.clone()
             };
-            output.push_str(&format!("{:>4}: [{}]{}{}\n", num, entry.mode, dir_tag, text));
+            output.push_str(&format!(
+                "{:>4}: [{}]{}{}\n",
+                num, entry.mode, dir_tag, text
+            ));
         }
         Ok(magic::Output::Text(output))
     }
@@ -305,12 +308,25 @@ impl magic::MagicHandler for Rerun {
             // Default: re-run the most recent entry
             entries.last().into_iter().collect()
         } else if let Some(resolved) = resolve_range(args, &entries) {
-            resolved.iter().map(|e| {
-                entries.iter().find(|h| h.text == e.text).unwrap()
-            }).collect()
+            resolved
+                .iter()
+                .map(|e| {
+                    entries
+                        .iter()
+                        .find(|h| h.text == e.text)
+                        .ok_or_else(|| magic::MagicError {
+                            message: "Internal error: history entry mismatch".into(),
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?
         } else {
             // Pattern search: find most recent match
-            entries.iter().rev().filter(|e| e.text.contains(args)).take(1).collect()
+            entries
+                .iter()
+                .rev()
+                .filter(|e| e.text.contains(args))
+                .take(1)
+                .collect()
         };
 
         if matched.is_empty() {
@@ -351,11 +367,24 @@ impl magic::MagicHandler for Recall {
         let matched: Vec<&Entry> = if args.is_empty() {
             entries.last().into_iter().collect()
         } else if let Some(resolved) = resolve_range(args, &entries) {
-            resolved.iter().map(|e| {
-                entries.iter().find(|h| h.text == e.text).unwrap()
-            }).collect()
+            resolved
+                .iter()
+                .map(|e| {
+                    entries
+                        .iter()
+                        .find(|h| h.text == e.text)
+                        .ok_or_else(|| magic::MagicError {
+                            message: "Internal error: history entry mismatch".into(),
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?
         } else {
-            entries.iter().rev().filter(|e| e.text.contains(args)).take(1).collect()
+            entries
+                .iter()
+                .rev()
+                .filter(|e| e.text.contains(args))
+                .take(1)
+                .collect()
         };
 
         if matched.is_empty() {

@@ -24,7 +24,9 @@ fn log_state() -> &'static Mutex<LogState> {
 /// Called by the REPL loop to log a command if logging is active.
 pub fn log_command(text: &str) {
     let state = log_state().lock().unwrap();
-    if state.active && let Some(ref file) = state.file {
+    if state.active
+        && let Some(ref file) = state.file
+    {
         let mut f = file;
         let _ = writeln!(f, "{}", text);
         let _ = f.flush();

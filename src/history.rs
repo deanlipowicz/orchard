@@ -31,7 +31,9 @@ impl Entry {
             mode: mode.to_string(),
             text: text.to_string(),
             #[cfg(not(test))]
-            cwd: std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()),
+            cwd: std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string()),
             #[cfg(test)]
             cwd: None,
         }
@@ -217,7 +219,9 @@ impl OrchardHistoryBackend {
 impl reedline::History for OrchardHistoryBackend {
     fn save(&mut self, mut item: HistoryItem) -> Result<HistoryItem> {
         let mode_string = self.mode.lock().unwrap().mode_string().to_string();
-        let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
+        let cwd = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
         item.id = Some(HistoryItemId(self.next_id as i64));
         self.items.push(item.clone());
         self.modes.push(mode_string);
@@ -262,7 +266,9 @@ impl reedline::History for OrchardHistoryBackend {
         }
 
         // Boost same-directory entries for cwd-contextual history
-        let current_cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string());
+        let current_cwd = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
         let mut scored: Vec<(&HistoryItem, u32)> = results
             .iter()
             .map(|item| {
@@ -285,7 +291,11 @@ impl reedline::History for OrchardHistoryBackend {
 
         // Apply limit
         let items: Vec<HistoryItem> = if let Some(limit) = query.limit {
-            scored.into_iter().take(limit as usize).map(|(item, _)| item.clone()).collect()
+            scored
+                .into_iter()
+                .take(limit as usize)
+                .map(|(item, _)| item.clone())
+                .collect()
         } else {
             scored.into_iter().map(|(item, _)| item.clone()).collect()
         };

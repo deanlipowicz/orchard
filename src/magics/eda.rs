@@ -2,11 +2,10 @@ use crate::magic::{self, MagicHandler, MagicLine, Output};
 
 fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
     let wrapped = format!("capture.output({code})");
-    let text = crate::r_runtime::eval_string_raw_global(&wrapped).map_err(|e| {
-        magic::MagicError {
+    let text =
+        crate::r_runtime::eval_string_raw_global(&wrapped).map_err(|e| magic::MagicError {
             message: e.to_string(),
-        }
-    })?;
+        })?;
     Ok(Output::Text(text))
 }
 
@@ -68,10 +67,7 @@ impl MagicHandler for Glimpse {
                 message: "Usage: %glimpse <R expression>".into(),
             });
         }
-        eval_with_pkg_check(
-            &format!("dplyr::glimpse({expr})"),
-            "dplyr",
-        )
+        eval_with_pkg_check(&format!("dplyr::glimpse({expr})"), "dplyr")
     }
 }
 
@@ -97,10 +93,7 @@ impl MagicHandler for Describe {
                 message: "Usage: %describe <R expression>".into(),
             });
         }
-        eval_with_pkg_check(
-            &format!("skimr::skim({expr})"),
-            "skimr",
-        )
+        eval_with_pkg_check(&format!("skimr::skim({expr})"), "skimr")
     }
 }
 
@@ -126,10 +119,7 @@ impl MagicHandler for Missing {
                 message: "Usage: %missing <R expression>".into(),
             });
         }
-        eval_with_pkg_check(
-            &format!("print(naniar::miss_summary({expr}))"),
-            "naniar",
-        )
+        eval_with_pkg_check(&format!("print(naniar::miss_summary({expr}))"), "naniar")
     }
 }
 
@@ -181,10 +171,7 @@ impl MagicHandler for Freq {
                 message: "Usage: %freq <R expression>".into(),
             });
         }
-        eval_with_pkg_check(
-            &format!("janitor::tabyl({expr})"),
-            "janitor",
-        )
+        eval_with_pkg_check(&format!("janitor::tabyl({expr})"), "janitor")
     }
 }
 
@@ -210,10 +197,7 @@ impl MagicHandler for Compare {
                 message: "Usage: %compare <obj1, obj2>".into(),
             });
         }
-        eval_with_pkg_check(
-            &format!("waldo::compare({expr}, max_diffs = 20)"),
-            "waldo",
-        )
+        eval_with_pkg_check(&format!("waldo::compare({expr}, max_diffs = 20)"), "waldo")
     }
 }
 
@@ -233,10 +217,7 @@ impl MagicHandler for SessionInfo {
     }
 
     fn run(&self, _line: &MagicLine) -> Result<Output, magic::MagicError> {
-        eval_with_pkg_check(
-            "sessioninfo::session_info()",
-            "sessioninfo",
-        )
+        eval_with_pkg_check("sessioninfo::session_info()", "sessioninfo")
     }
 }
 
@@ -316,25 +297,25 @@ mod tests {
 
     #[test]
     fn sessioninfo_ignores_args() {
-        let handler = SessionInfo;
-        let line = MagicLine {
-            name: "sessioninfo".into(),
-            args: "".into(),
-            is_cell: false,
-        };
-        // Should not error on empty args — sessioninfo() takes no arguments
-        let result = handler.run(&line);
-        // May fail if R is not initialized, but should be an R error, not our validation
-        // We just verify it attempts dispatch (some R call happens)
-        assert!(
-            result.is_err() || result.is_ok(),
-            "sessioninfo should attempt R call"
-        );
+        // sessioninfo::session_info() takes no arguments — the handler
+        // accepts `_line` (unused).  The runtime behaviour is verified in
+        // integration tests with ORCHARD_TEST_R=1.  Here we only verify
+        // the handler is registered.
+        test_handler_registered("sessioninfo");
     }
 
     #[test]
     fn parse_magic_recognizes_all_eda_handlers() {
-        let names = ["summary", "glimpse", "describe", "missing", "corr", "freq", "compare", "sessioninfo"];
+        let names = [
+            "summary",
+            "glimpse",
+            "describe",
+            "missing",
+            "corr",
+            "freq",
+            "compare",
+            "sessioninfo",
+        ];
         for name in &names {
             let input = format!("%{name} mtcars");
             let parsed = crate::magic::parse_magic(&input, false);
@@ -348,14 +329,27 @@ mod tests {
         // These test that dispatch runs without panicking and returns Output::Text.
         // The actual R evaluation will fail since R is not initialized in unit tests.
         // We test the pre-R path: parse + lookup succeeds.
-        let names = ["summary", "glimpse", "describe", "missing", "corr", "freq", "compare", "sessioninfo"];
+        let names = [
+            "summary",
+            "glimpse",
+            "describe",
+            "missing",
+            "corr",
+            "freq",
+            "compare",
+            "sessioninfo",
+        ];
         for name in &names {
             let parsed = crate::magic::parse_magic(&format!("%{name} x"), false);
             assert!(parsed.is_some(), "failed to parse '%{name}'");
             let cmd = parsed.unwrap();
             // Check the handler exists in the registry (full dispatch needs R)
             let reg = crate::magic::magic_registry().lock().unwrap();
-            assert!(reg.get(&cmd.name).is_some(), "handler '{}' not found in registry", cmd.name);
+            assert!(
+                reg.get(&cmd.name).is_some(),
+                "handler '{}' not found in registry",
+                cmd.name
+            );
         }
     }
 }
