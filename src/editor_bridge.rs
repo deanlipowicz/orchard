@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
@@ -84,6 +85,36 @@ pub fn push_editor_job(job: EditorJob) {
 }
 
 // ---------------------------------------------------------------------------
+// Socket path resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve the socket path using XDG or a /tmp fallback.
+///
+/// Priority:
+/// 1. `$XDG_RUNTIME_DIR/orchard.sock` (preferred — auto-cleaned on logout)
+/// 2. `/tmp/orchard-<uid>.sock` (fallback)
+pub fn resolve_socket_path() -> PathBuf {
+    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let path = PathBuf::from(dir).join("orchard.sock");
+        return path;
+    }
+    // Safety: getuid() is always available on Linux and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    PathBuf::from(format!("/tmp/orchard-{uid}.sock"))
+}
+
+/// RAII guard that removes the socket file on drop.
+pub struct SocketGuard {
+    pub path: PathBuf,
+}
+
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Re-initialisation for tests
 // ---------------------------------------------------------------------------
 
@@ -144,6 +175,51 @@ mod tests {
         let req: EditorRequest =
             serde_json::from_str(r#"{"id":"1","code":"1+1"}"#).unwrap();
         assert!(req.echo);
+    }
+
+    // -- Socket path resolution -------------------------------------------
+
+    #[test]
+    fn resolve_socket_path_xdg() {
+        let prior = std::env::var("XDG_RUNTIME_DIR").ok();
+        // Safety: test runs single-threaded; env var manipulation is sound.
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000"); }
+        let path = resolve_socket_path();
+        assert_eq!(path, PathBuf::from("/run/user/1000/orchard.sock"));
+        match prior {
+            Some(v) => unsafe { std::env::set_var("XDG_RUNTIME_DIR", v); },
+            None => unsafe { std::env::remove_var("XDG_RUNTIME_DIR"); },
+        }
+    }
+
+    #[test]
+    fn resolve_socket_path_tmp_fallback() {
+        let prior = std::env::var("XDG_RUNTIME_DIR").ok();
+        // Safety: test runs single-threaded; env var manipulation is sound.
+        unsafe { std::env::remove_var("XDG_RUNTIME_DIR"); }
+        let path = resolve_socket_path();
+        // Should be /tmp/orchard-<uid>.sock
+        let s = path.to_string_lossy();
+        assert!(s.starts_with("/tmp/orchard-"), "got {s}");
+        assert!(s.ends_with(".sock"), "got {s}");
+        match prior {
+            Some(v) => unsafe { std::env::set_var("XDG_RUNTIME_DIR", v); },
+            None => unsafe { std::env::remove_var("XDG_RUNTIME_DIR"); },
+        }
+    }
+
+    #[test]
+    fn socket_guard_removes_file_on_drop() {
+        let dir = std::env::temp_dir().join("orchard_test_guard");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.sock");
+        std::fs::write(&path, "").unwrap();
+        assert!(path.exists());
+        {
+            let _guard = SocketGuard { path: path.clone() };
+        }
+        assert!(!path.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // -- Queue behaviour ---------------------------------------------------
