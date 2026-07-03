@@ -119,6 +119,8 @@ pub fn register_all(registry: &mut MagicRegistry) {
     registry.register(Arc::new(crate::magics::inspect::Pdef));
     registry.register(Arc::new(crate::magics::inspect::Psource));
     registry.register(Arc::new(crate::magics::inspect::Pfile));
+    registry.register(Arc::new(crate::magics::inspect::Methods));
+    registry.register(Arc::new(crate::magics::inspect::Psearch));
 
     // P3 — Debugging and timing
     registry.register(Arc::new(crate::magics::debug::Traceback));

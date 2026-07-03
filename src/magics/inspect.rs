@@ -1,6 +1,6 @@
 use crate::magic::{self, MagicHandler, MagicLine, Output};
 use crate::r_runtime;
-use comfy_table::{presets::UTF8_FULL, Attribute, Cell, CellAlignment, ContentArrangement, Table};
+use comfy_table::{Attribute, Cell, CellAlignment, ContentArrangement, Table, presets::UTF8_FULL};
 
 fn eval_r_captured(code: &str) -> Result<Output, magic::MagicError> {
     let wrapped = format!("capture.output({code})");
@@ -495,7 +495,11 @@ fn render_tabular(data: &str, expr: &str) -> String {
     // Header row
     let header_cells: Vec<Cell> = col_names
         .iter()
-        .map(|name| Cell::new(name).set_alignment(CellAlignment::Center).add_attribute(Attribute::Bold))
+        .map(|name| {
+            Cell::new(name)
+                .set_alignment(CellAlignment::Center)
+                .add_attribute(Attribute::Bold)
+        })
         .collect();
     table.set_header(header_cells);
 
@@ -508,7 +512,12 @@ fn render_tabular(data: &str, expr: &str) -> String {
 
     // Footer summary
     let footer = if nrow > ncol {
-        format!("\nShowing {} of {} rows, {} columns ({class_name})", nrow.min(20), nrow, ncol)
+        format!(
+            "\nShowing {} of {} rows, {} columns ({class_name})",
+            nrow.min(20),
+            nrow,
+            ncol
+        )
     } else {
         format!("\nShowing {} columns", ncol)
     };
@@ -576,6 +585,57 @@ impl MagicHandler for Inspect {
 
         let rendered = render_tabular(&result, expr);
         Ok(Output::Text(rendered))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %methods — Show S3/S4 methods for a generic function or class
+// ---------------------------------------------------------------------------
+
+pub struct Methods;
+
+impl MagicHandler for Methods {
+    fn name(&self) -> &'static str {
+        "methods"
+    }
+    fn description(&self) -> &'static str {
+        "Show S3/S4 methods for a generic function or class"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let name = line.args.trim();
+        if name.is_empty() {
+            return Err(magic::MagicError {
+                message: "Usage: %methods <function_or_class>".into(),
+            });
+        }
+        eval_r_captured(&format!("methods({name})"))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// %psearch — Pattern-based object search (find + apropos)
+// ---------------------------------------------------------------------------
+
+pub struct Psearch;
+
+impl MagicHandler for Psearch {
+    fn name(&self) -> &'static str {
+        "psearch"
+    }
+    fn description(&self) -> &'static str {
+        "Search for objects matching a pattern using find() and apropos()"
+    }
+    fn run(&self, line: &MagicLine) -> Result<Output, magic::MagicError> {
+        let pattern = line.args.trim();
+        if pattern.is_empty() {
+            return Err(magic::MagicError {
+                message: "Usage: %psearch <pattern>".into(),
+            });
+        }
+        eval_r_captured(&format!(
+            r#"cat("=== find('{}') ===\n", sep=""); cat(find("{}"), sep="\n"); cat("\n=== apropos('{}') ===\n", sep=""); cat(apropos("{}", ignore.case = TRUE), sep="\n")"#,
+            pattern, pattern, pattern, pattern
+        ))
     }
 }
 
@@ -654,5 +714,39 @@ mod tests {
     fn build_inspect_code_contains_no_table_fallback() {
         let code = build_inspect_code("x");
         assert!(code.contains("no-table"));
+    }
+
+    #[test]
+    fn methods_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("methods").is_some());
+    }
+
+    #[test]
+    fn methods_empty_args_returns_error() {
+        let handler = Methods;
+        let line = MagicLine {
+            name: "methods".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
+    }
+
+    #[test]
+    fn psearch_registered() {
+        let reg = crate::magic::magic_registry().lock().unwrap();
+        assert!(reg.get("psearch").is_some());
+    }
+
+    #[test]
+    fn psearch_empty_args_returns_error() {
+        let handler = Psearch;
+        let line = MagicLine {
+            name: "psearch".into(),
+            args: "".into(),
+            is_cell: false,
+        };
+        assert!(handler.run(&line).is_err());
     }
 }
